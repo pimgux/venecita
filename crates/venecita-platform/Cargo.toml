@@ -1,0 +1,35 @@
+[package]
+name = "venecita-platform"
+description = "OS backends (macOS, Windows, Linux) for Venecita Dock"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+venecita-core.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
+objc2-core-foundation = { version = "0.3", features = ["block2"] }
+objc2-core-graphics = "0.3"
+objc2-application-services = "0.3"
+block2 = "0.6"
+
+# Tests against the real macOS desktop. They need the main thread (so no libtest harness)
+# and the Accessibility permission, and only run when VENECITA_DESKTOP_TESTS=1.
+[[test]]
+name = "macos_desktop"
+harness = false

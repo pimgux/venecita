@@ -1,0 +1,101 @@
+# Venecita Dock configuration
+# ===========================
+#
+# This file is reloaded automatically when you save it. Every section is optional.
+# Full reference: https://github.com/pimgux/venecita/blob/main/docs/CONFIG.md
+#
+# Each display is divided into a grid (8 columns x 4 rows by default). A zone is a
+# rectangle of cells: `col`/`row` is the top-left cell (counting from 0) and `w`/`h`
+# is the size in cells. Example: { col = 0, row = 0, w = 4, h = 4 } = left half.
+
+[general]
+language = "auto"          # "auto", "en" or "es"
+grid = { cols = 8, rows = 4 }
+gap = 8                    # points between windows and around the screen edges
+launch_at_login = false
+ignore = []                # apps Venecita never moves, e.g. ["com.apple.calculator"]
+
+[focus]
+size = 0.8                 # the focused window takes 80 % of the screen
+dim_opacity = 0.55         # how dark the rest of the screen gets
+
+[tabs]
+height = 24
+
+[dim]
+enabled = false            # darken every window except the focused one
+opacity = 0.3              # how dark the other windows get
+
+[api]
+enabled = true
+bind = "127.0.0.1:47800"   # the token is stored next to this file in token.secret
+allow_lan = false
+
+# --- Displays -------------------------------------------------------------------------
+# Give each monitor a short id. `match` can use: builtin, name (part of the name),
+# vendor, model, serial, width and height (pixels). Use the tray menu
+# "Settings > Displays" to see the values of your monitors.
+
+[[displays]]
+id = "laptop"
+match = { builtin = true }
+
+[[displays]]
+id = "external"
+match = { builtin = false }
+
+# --- Profiles ---------------------------------------------------------------------------
+# A profile has one or more layouts. The layout whose displays are all connected and
+# that uses the most displays is chosen automatically.
+
+[[profiles]]
+name = "Default"
+
+  [[profiles.layouts]]
+  name = "External + laptop"
+  displays = ["external", "laptop"]
+  dynamic_zone = { display = "laptop", col = 0, row = 0, w = 8, h = 4 }
+
+    # Example rule: uncomment and adapt.
+    # [[profiles.layouts.rules]]
+    # apps = ["com.google.Chrome", "chrome.exe"]
+    # zone = { display = "external", col = 0, row = 0, w = 4, h = 4 }
+
+  [[profiles.layouts]]
+  name = "External only"
+  displays = ["external"]
+  dynamic_zone = { display = "external", col = 6, row = 0, w = 2, h = 4 }
+
+  [[profiles.layouts]]
+  name = "Laptop only"
+  displays = ["laptop"]
+  dynamic_zone = { display = "laptop", col = 0, row = 0, w = 8, h = 4 }
+
+# --- Keyboard shortcuts --------------------------------------------------------------------
+# Modifiers: ctrl, alt (option), shift, cmd (Windows key / Super).
+# If you remove this table the defaults below are used.
+
+[hotkeys]
+"ctrl+alt+left" = { action = "move_zone", dir = "left" }
+"ctrl+alt+right" = { action = "move_zone", dir = "right" }
+"ctrl+alt+up" = { action = "move_zone", dir = "up" }
+"ctrl+alt+down" = { action = "move_zone", dir = "down" }
+"ctrl+alt+shift+left" = { action = "grow", dir = "left" }
+"ctrl+alt+shift+right" = { action = "grow", dir = "right" }
+"ctrl+alt+shift+up" = { action = "grow", dir = "up" }
+"ctrl+alt+shift+down" = { action = "grow", dir = "down" }
+"ctrl+alt+cmd+left" = { action = "shrink", dir = "left" }
+"ctrl+alt+cmd+right" = { action = "shrink", dir = "right" }
+"ctrl+alt+cmd+up" = { action = "shrink", dir = "up" }
+"ctrl+alt+cmd+down" = { action = "shrink", dir = "down" }
+"ctrl+alt+n" = { action = "move_to_display", target = "next" }
+"ctrl+alt+b" = { action = "move_to_display", target = "prev" }
+"ctrl+alt+s" = "snap_to_grid"
+"ctrl+alt+p" = "pin_here"
+"ctrl+alt+r" = "relayout_all"
+"ctrl+alt+f" = "focus_mode_toggle"
+"ctrl+alt+bracketright" = "stack_next"
+"ctrl+alt+bracketleft" = "stack_prev"
+"ctrl+alt+period" = "dynamic_next"
+"ctrl+alt+comma" = "dynamic_prev"
+"ctrl+alt+0" = "next_profile"

@@ -1,0 +1,164 @@
+# Example configuration with two desk setups:
+#
+#   Home: a 43" 4K monitor + the laptop screen (lid open or closed)
+#   Work: two identical 27" monitors + the laptop screen (lid open or closed)
+#
+# Copy it to ~/Library/Application Support/venecita-dock/config.toml (macOS) and adapt the
+# display names and apps to yours.
+
+[general]
+language = "es"
+grid = { cols = 8, rows = 4 }
+gap = 8
+launch_at_login = true
+ignore = ["com.apple.calculator", "com.apple.systempreferences"]
+
+[focus]
+size = 0.8
+dim_opacity = 0.6
+
+[api]
+enabled = true
+bind = "127.0.0.1:47800"
+
+# --- Displays ---------------------------------------------------------------------------
+
+# The 43" LG is big: give it a finer 8 x 8 grid (other displays use general.grid).
+[[displays]]
+id = "lg43"
+match = { name = "LG Monitor" }
+grid = { cols = 8, rows = 8 }
+
+# Two identical monitors: definitions are matched left to right, so the first one listed
+# takes the left-most monitor.
+[[displays]]
+id = "work_left"
+match = { name = "DELL U2723QE" }
+
+[[displays]]
+id = "work_right"
+match = { name = "DELL U2723QE" }
+
+[[displays]]
+id = "laptop"
+match = { builtin = true }
+
+# --- Home -------------------------------------------------------------------------------
+# LG (8 x 8 grid):            Laptop (8 x 4 grid):
+#   +---------+---------+       +-------------------+
+#   | VS Code |         |       |                   |
+#   | 4x4     |         |       |   dynamic zone    |
+#   +---------+         |       |   (every app      |
+#   | Firefox |         |       |    without rule)  |
+#   | 4x4     |         |       |                   |
+#   +---------+---------+       +-------------------+
+
+[[profiles]]
+name = "Casa"
+
+  [[profiles.layouts]]
+  name = "Notebook abierta"
+  displays = ["lg43", "laptop"]
+  dynamic_zone = { display = "laptop", col = 0, row = 0, w = 8, h = 4 }
+
+    [[profiles.layouts.rules]]
+    apps = ["com.microsoft.VSCode", "code.exe", "code"]
+    zone = { display = "lg43", col = 0, row = 0, w = 4, h = 4 }
+
+    [[profiles.layouts.rules]]
+    apps = ["org.mozilla.firefox", "firefox.exe", "firefox"]
+    zone = { display = "lg43", col = 0, row = 4, w = 4, h = 4 }
+
+  # Lid closed: same places on the LG, and the right half becomes the dynamic zone.
+  [[profiles.layouts]]
+  name = "Notebook cerrada"
+  displays = ["lg43"]
+  dynamic_zone = { display = "lg43", col = 4, row = 0, w = 4, h = 8 }
+
+    [[profiles.layouts.rules]]
+    apps = ["com.microsoft.VSCode", "code.exe", "code"]
+    zone = { display = "lg43", col = 0, row = 0, w = 4, h = 4 }
+
+    [[profiles.layouts.rules]]
+    apps = ["org.mozilla.firefox", "firefox.exe", "firefox"]
+    zone = { display = "lg43", col = 0, row = 4, w = 4, h = 4 }
+
+# --- Work -------------------------------------------------------------------------------
+
+[[profiles]]
+name = "Trabajo"
+
+  [[profiles.layouts]]
+  name = "Notebook abierta"
+  displays = ["work_left", "work_right", "laptop"]
+  dynamic_zone = { display = "laptop", col = 0, row = 0, w = 8, h = 4 }
+
+    [[profiles.layouts.rules]]
+    apps = ["com.google.Chrome", "chrome.exe"]
+    zone = { display = "work_left", col = 0, row = 0, w = 8, h = 4 }
+
+    [[profiles.layouts.rules]]
+    apps = ["com.microsoft.VSCode", "code.exe"]
+    zone = { display = "work_right", col = 0, row = 0, w = 6, h = 4 }
+
+    [[profiles.layouts.rules]]
+    apps = ["com.microsoft.teams2", "ms-teams.exe"]
+    zone = { display = "laptop", col = 0, row = 0, w = 8, h = 4 }
+
+  [[profiles.layouts]]
+  name = "Notebook cerrada"
+  displays = ["work_left", "work_right"]
+  dynamic_zone = { display = "work_right", col = 6, row = 0, w = 2, h = 4 }
+
+    [[profiles.layouts.rules]]
+    apps = ["com.google.Chrome", "chrome.exe"]
+    zone = { display = "work_left", col = 0, row = 0, w = 8, h = 4 }
+
+    [[profiles.layouts.rules]]
+    apps = ["com.microsoft.VSCode", "code.exe"]
+    zone = { display = "work_right", col = 0, row = 0, w = 6, h = 4 }
+
+# --- Laptop only (travelling) -------------------------------------------------------------
+
+[[profiles]]
+name = "Viaje"
+
+  [[profiles.layouts]]
+  name = "Solo notebook"
+  displays = ["laptop"]
+  dynamic_zone = { display = "laptop", col = 0, row = 0, w = 8, h = 4 }
+
+    [[profiles.layouts.rules]]
+    apps = ["com.google.Chrome", "chrome.exe"]
+    zone = { display = "laptop", col = 0, row = 0, w = 5, h = 4 }
+
+# --- Shortcuts --------------------------------------------------------------------------
+# Only the shortcuts listed here are active (this table replaces the defaults).
+
+[hotkeys]
+"ctrl+alt+left" = { action = "move_zone", dir = "left" }
+"ctrl+alt+right" = { action = "move_zone", dir = "right" }
+"ctrl+alt+up" = { action = "move_zone", dir = "up" }
+"ctrl+alt+down" = { action = "move_zone", dir = "down" }
+"ctrl+alt+shift+left" = { action = "grow", dir = "left" }
+"ctrl+alt+shift+right" = { action = "grow", dir = "right" }
+"ctrl+alt+shift+up" = { action = "grow", dir = "up" }
+"ctrl+alt+shift+down" = { action = "grow", dir = "down" }
+"ctrl+alt+cmd+left" = { action = "shrink", dir = "left" }
+"ctrl+alt+cmd+right" = { action = "shrink", dir = "right" }
+"ctrl+alt+cmd+up" = { action = "shrink", dir = "up" }
+"ctrl+alt+cmd+down" = { action = "shrink", dir = "down" }
+"ctrl+alt+n" = { action = "move_to_display", target = "next" }
+"ctrl+alt+b" = { action = "move_to_display", target = "prev" }
+"ctrl+alt+s" = "snap_to_grid"
+"ctrl+alt+p" = "pin_here"
+"ctrl+alt+r" = "relayout_all"
+"ctrl+alt+f" = "focus_mode_toggle"
+"ctrl+alt+bracketright" = "stack_next"
+"ctrl+alt+bracketleft" = "stack_prev"
+"ctrl+alt+period" = "dynamic_next"
+"ctrl+alt+comma" = "dynamic_prev"
+"ctrl+alt+1" = { action = "activate_profile", name = "Casa" }
+"ctrl+alt+2" = { action = "activate_profile", name = "Trabajo" }
+"ctrl+alt+a" = "auto_profile"
+"ctrl+alt+0" = "next_profile"
