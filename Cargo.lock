@@ -3645,6 +3645,7 @@ dependencies = [
  "eframe",
  "egui",
  "fluent",
+ "getrandom",
  "global-hotkey",
  "notify",
  "notify-debouncer-mini",

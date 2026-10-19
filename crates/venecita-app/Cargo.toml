@@ -33,6 +33,7 @@ toml.workspace = true
 toml_edit.workspace = true
 fluent.workspace = true
 unic-langid.workspace = true
+getrandom = "0.4"
 global-hotkey = "0.9"
 
 [target.'cfg(target_os = "macos")'.dependencies]

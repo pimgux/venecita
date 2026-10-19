@@ -28,6 +28,9 @@ pub struct SettingsModel {
     /// happen through the typed setters, which only ever write well-typed values).
     parse_error: Option<String>,
     dirty: bool,
+    /// The file uses Windows line endings. `toml_edit` writes `\n`, so they are restored on
+    /// output to keep the file as the user (or their editor) wrote it.
+    crlf: bool,
 }
 
 impl SettingsModel {
@@ -44,6 +47,7 @@ impl SettingsModel {
             errors,
             parse_error: None,
             dirty: false,
+            crlf: text.contains("\r\n"),
         })
     }
 
@@ -84,7 +88,12 @@ impl SettingsModel {
 
     /// The configuration as it would be written to disk, comments and all.
     pub fn to_toml_string(&self) -> String {
-        self.doc.to_string()
+        let text = self.doc.to_string();
+        if self.crlf {
+            text.replace("\r\n", "\n").replace('\n', "\r\n")
+        } else {
+            text
+        }
     }
 
     /// Writes the configuration back to its file, preserving comments and formatting.
@@ -103,7 +112,7 @@ impl SettingsModel {
             .path
             .as_ref()
             .ok_or("this configuration has no file to save to")?;
-        std::fs::write(path, self.doc.to_string()).map_err(|e| format!("{e}"))?;
+        std::fs::write(path, self.to_toml_string()).map_err(|e| format!("{e}"))?;
         self.dirty = false;
         Ok(())
     }

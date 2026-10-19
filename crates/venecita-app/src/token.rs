@@ -4,7 +4,7 @@
 //! file is created with mode 0600. The settings window shows, copies and rotates it; the API
 //! server (phase 8) checks requests against it.
 
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// File name of the token, inside the config directory.
@@ -25,7 +25,7 @@ pub fn read(path: &Path) -> Option<String> {
 /// Generates a new token.
 pub fn generate() -> std::io::Result<String> {
     let mut bytes = [0u8; 32];
-    std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+    getrandom::fill(&mut bytes).map_err(std::io::Error::other)?;
     Ok(base64url(&bytes))
 }
 

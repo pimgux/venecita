@@ -375,3 +375,18 @@ fn end_of_line_comments_survive_scalar_edits() {
         "{language}"
     );
 }
+
+#[test]
+fn windows_line_endings_are_kept() {
+    let crlf = DEFAULT.replace("\r\n", "\n").replace('\n', "\r\n");
+    let mut m = model(&crlf);
+    assert_eq!(m.to_toml_string(), crlf, "untouched round-trip must match");
+    m.set_gap(12.0);
+    m.add_profile("Road").unwrap();
+    let out = m.to_toml_string();
+    assert!(
+        !out.replace("\r\n", "").contains('\n'),
+        "every line ends in CRLF"
+    );
+    assert!(out.contains("gap = 12"));
+}
