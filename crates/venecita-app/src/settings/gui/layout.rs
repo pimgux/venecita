@@ -1,6 +1,10 @@
-//! The "Layout" tab: each display of a layout drawn to scale with its grid. Drag across
-//! cells to pick a zone, then choose the apps that go there. Click a rule to select it;
-//! drag a new zone and apply to move or resize it.
+//! The "Layout" tab: each display of a layout drawn to scale with its grid.
+//!
+//! * Drag across empty cells to pick a zone, then choose the apps that go there.
+//! * Drag a rule by its body to move it (also onto another display), or by an edge or a
+//!   corner to resize it. The change is applied when the mouse is released.
+//! * The dynamic zone can be resized by its edges; it is moved with "Mark as dynamic zone",
+//!   because it often fills a whole display and its body must stay free for new zones.
 
 use std::time::{Duration, Instant};
 
@@ -13,12 +17,96 @@ use venecita_core::grid::{GridSize, Zone};
 use super::displays;
 use super::rule_color;
 use crate::intl::I18n;
-use crate::settings::model::{zone_from_drag, SettingsModel};
+use crate::settings::model::{zone_from_drag, zone_moved, zone_resized, Edges, SettingsModel};
 
 /// Aspect ratio used for a display that isn't connected right now.
 const FALLBACK_SIZE: (f64, f64) = (1600.0, 1000.0);
 /// Maximum height of a drawn display, in points.
 const MAX_HEIGHT: f32 = 320.0;
+/// How close to an edge, in points, the pointer must be to resize instead of move.
+const EDGE_GRAB: f32 = 7.0;
+
+/// Something on a display that can be dragged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Target {
+    Rule(usize),
+    Dynamic,
+}
+
+/// A rule or the dynamic zone being moved or resized with the mouse.
+#[derive(Debug, Clone)]
+struct ItemDrag {
+    target: Target,
+    start: Placement,
+    /// Cell of the zone the pointer held, relative to its top-left cell (moves).
+    grab: (u8, u8),
+    /// Edges held (resizes); none for a move.
+    edges: Edges,
+    /// Where the item would go if released now.
+    preview: Placement,
+}
+
+/// Where a display was drawn, so a drag can continue onto another display.
+#[derive(Debug, Clone)]
+struct Canvas {
+    id: String,
+    rect: egui::Rect,
+    grid: GridSize,
+}
+
+impl Canvas {
+    fn cell_size(&self) -> egui::Vec2 {
+        egui::vec2(
+            self.rect.width() / f32::from(self.grid.cols.max(1)),
+            self.rect.height() / f32::from(self.grid.rows.max(1)),
+        )
+    }
+
+    /// The cell under `pos`, clamped to the grid.
+    fn cell_at(&self, pos: egui::Pos2) -> (u8, u8) {
+        let cell = self.cell_size();
+        let col = ((pos.x - self.rect.min.x) / cell.x)
+            .floor()
+            .clamp(0.0, f32::from(self.grid.cols - 1));
+        let row = ((pos.y - self.rect.min.y) / cell.y)
+            .floor()
+            .clamp(0.0, f32::from(self.grid.rows - 1));
+        (col as u8, row as u8)
+    }
+
+    /// The on-screen rectangle of a zone.
+    fn zone_rect(&self, z: Zone) -> egui::Rect {
+        let cell = self.cell_size();
+        egui::Rect::from_min_size(
+            self.rect.min + egui::vec2(f32::from(z.col) * cell.x, f32::from(z.row) * cell.y),
+            egui::vec2(f32::from(z.w) * cell.x, f32::from(z.h) * cell.y),
+        )
+        .shrink(1.5)
+    }
+}
+
+/// The edges of `rect` near `pos` (empty if `pos` is inside, away from the edges).
+fn edges_near(rect: egui::Rect, pos: egui::Pos2) -> Edges {
+    // Small zones keep a grabbable body in the middle.
+    let mx = EDGE_GRAB.min(rect.width() / 4.0);
+    let my = EDGE_GRAB.min(rect.height() / 4.0);
+    Edges {
+        left: (pos.x - rect.min.x).abs() <= mx,
+        right: (pos.x - rect.max.x).abs() <= mx,
+        top: (pos.y - rect.min.y).abs() <= my,
+        bottom: (pos.y - rect.max.y).abs() <= my,
+    }
+}
+
+fn resize_cursor(edges: Edges) -> egui::CursorIcon {
+    use egui::CursorIcon::*;
+    match (edges.left || edges.right, edges.top || edges.bottom) {
+        (true, false) => ResizeHorizontal,
+        (false, true) => ResizeVertical,
+        _ if (edges.left && edges.top) || (edges.right && edges.bottom) => ResizeNwSe,
+        _ => ResizeNeSw,
+    }
+}
 
 #[derive(Default)]
 pub(super) struct State {
@@ -34,6 +122,12 @@ pub(super) struct State {
     running: Vec<(String, String)>,
     running_refreshed: Option<Instant>,
     error: Option<String>,
+    /// A rule or the dynamic zone being dragged.
+    item_drag: Option<ItemDrag>,
+    /// Displays drawn in the previous frame (a drag can end on any of them).
+    canvases: Vec<Canvas>,
+    /// Displays drawn in this frame.
+    canvases_next: Vec<Canvas>,
 }
 
 pub(super) fn show(
@@ -110,6 +204,8 @@ pub(super) fn show(
 
     ui.add_space(6.0);
     ui.label(egui::RichText::new(i18n.get("drag-hint")).weak());
+    state.canvases = std::mem::take(&mut state.canvases_next);
+    let mut commit = None;
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = spacing;
         for (id, (w, h)) in layout.displays.iter().zip(&sizes) {
@@ -117,18 +213,40 @@ pub(super) fn show(
             ui.vertical(|ui| {
                 ui.monospace(format!("{id}  ({}×{})", grid.cols, grid.rows));
                 let size = egui::vec2((w * scale) as f32, (h * scale) as f32);
-                display_canvas(
-                    ui,
-                    state,
-                    &layout,
-                    id,
+                let canvas = Canvas {
+                    id: id.clone(),
+                    // Replaced by the real rectangle once allocated.
+                    rect: egui::Rect::NOTHING,
                     grid,
-                    size,
-                    &i18n.get("dynamic-zone"),
-                );
+                };
+                if let Some(c) =
+                    display_canvas(ui, state, &layout, canvas, size, &i18n.get("dynamic-zone"))
+                {
+                    commit = Some(c);
+                }
             });
         }
     });
+
+    // A drag that ended: apply it to the configuration.
+    if let Some((target, placement)) = commit {
+        let (p, l) = (state.profile, state.layout);
+        state.error = match target {
+            Target::Rule(i) => {
+                let apps = layout.rules[i].apps.clone();
+                let result = model.set_rule(p, l, i, &apps, &placement);
+                if result.is_ok() {
+                    select_rule(state, i, placement, &apps);
+                }
+                result.err()
+            }
+            Target::Dynamic => {
+                state.selection = Some(placement.clone());
+                state.editing_rule = None;
+                model.set_dynamic_zone(p, l, Some(&placement)).err()
+            }
+        };
+    }
 
     // --- The selection ---
     ui.add_space(10.0);
@@ -209,37 +327,33 @@ pub(super) fn show(
 }
 
 /// Draws one display with its grid, rules, dynamic zone and selection, and handles the
-/// clicks and drags on it.
+/// clicks and drags on it. Returns a move or resize to apply when a drag ends here.
 fn display_canvas(
     ui: &mut egui::Ui,
     state: &mut State,
     layout: &Layout,
-    id: &str,
-    grid: GridSize,
+    canvas: Canvas,
     size: egui::Vec2,
     dynamic_label: &str,
-) {
+) -> Option<(Target, Placement)> {
     let (response, painter) = ui.allocate_painter(size, egui::Sense::click_and_drag());
-    let rect = response.rect;
-    let cell = egui::vec2(
-        rect.width() / f32::from(grid.cols.max(1)),
-        rect.height() / f32::from(grid.rows.max(1)),
-    );
-    let zone_rect = |z: Zone| {
-        egui::Rect::from_min_size(
-            rect.min + egui::vec2(f32::from(z.col) * cell.x, f32::from(z.row) * cell.y),
-            egui::vec2(f32::from(z.w) * cell.x, f32::from(z.h) * cell.y),
-        )
-        .shrink(1.5)
+    let canvas = Canvas {
+        rect: response.rect,
+        ..canvas
     };
-    let cell_at = |pos: egui::Pos2| {
-        let col = ((pos.x - rect.min.x) / cell.x)
-            .floor()
-            .clamp(0.0, f32::from(grid.cols - 1));
-        let row = ((pos.y - rect.min.y) / cell.y)
-            .floor()
-            .clamp(0.0, f32::from(grid.rows - 1));
-        (col as u8, row as u8)
+    let id = canvas.id.as_str();
+    let grid = canvas.grid;
+    let rect = canvas.rect;
+    let cell = canvas.cell_size();
+
+    // Where each item is drawn: the drag preview replaces the dragged item.
+    let dragging = state.item_drag.as_ref().map(|d| d.target);
+    let preview = state.item_drag.as_ref().map(|d| d.preview.clone());
+    let placement_of = |target: Target, saved: &Placement| -> Placement {
+        match (dragging, &preview) {
+            (Some(t), Some(p)) if t == target => p.clone(),
+            _ => saved.clone(),
+        }
     };
 
     let visuals = ui.visuals();
@@ -259,9 +373,14 @@ fn display_canvas(
         egui::Stroke::new(1.0_f32, visuals.weak_text_color()),
     );
 
-    if let Some(dz) = layout.dynamic_zone.as_ref().filter(|d| d.display == id) {
+    let dynamic = layout
+        .dynamic_zone
+        .as_ref()
+        .map(|d| placement_of(Target::Dynamic, d))
+        .filter(|d| d.display == id);
+    if let Some(dz) = &dynamic {
         // Diagonal hatching, so the dynamic zone reads differently from rules.
-        let r = zone_rect(dz.zone());
+        let r = canvas.zone_rect(dz.zone());
         let color = visuals.text_color().gamma_multiply(0.6);
         let hatch = painter.with_clip_rect(r);
         let step = 10.0;
@@ -273,7 +392,12 @@ fn display_canvas(
             );
             x += step;
         }
-        painter.rect_stroke(r, 3.0, egui::Stroke::new(1.5_f32, color));
+        let width: f32 = if dragging == Some(Target::Dynamic) {
+            2.5
+        } else {
+            1.5
+        };
+        painter.rect_stroke(r, 3.0, egui::Stroke::new(width, color));
         // A label on a solid background, readable over the hatching.
         let galley = painter.layout_no_wrap(
             dynamic_label.to_string(),
@@ -285,15 +409,32 @@ fn display_canvas(
         painter.galley(label.min, galley, visuals.text_color());
     }
 
-    for (i, rule) in layout.rules.iter().enumerate() {
-        if rule.zone.display != id {
-            continue;
-        }
-        let r = zone_rect(rule.zone.zone());
-        let color = rule_color(i);
-        painter.rect_filled(r, 3.0, color.gamma_multiply(0.55));
-        painter.rect_stroke(r, 3.0, egui::Stroke::new(1.0_f32, color));
-        let label = rule.apps.first().map(|a| short_app(a)).unwrap_or_default();
+    let rules: Vec<(usize, Placement)> = layout
+        .rules
+        .iter()
+        .enumerate()
+        .map(|(i, r)| (i, placement_of(Target::Rule(i), &r.zone)))
+        .filter(|(_, z)| z.display == id)
+        .collect();
+    for (i, zone) in &rules {
+        let r = canvas.zone_rect(zone.zone());
+        let color = rule_color(*i);
+        let dragged = dragging == Some(Target::Rule(*i));
+        painter.rect_filled(
+            r,
+            3.0,
+            color.gamma_multiply(if dragged { 0.8 } else { 0.55 }),
+        );
+        painter.rect_stroke(
+            r,
+            3.0,
+            egui::Stroke::new(if dragged { 2.5_f32 } else { 1.0_f32 }, color),
+        );
+        let label = layout.rules[*i]
+            .apps
+            .first()
+            .map(|a| short_app(a))
+            .unwrap_or_default();
         painter.text(
             r.center(),
             egui::Align2::CENTER_CENTER,
@@ -303,47 +444,108 @@ fn display_canvas(
         );
     }
 
-    if let Some(sel) = state.selection.as_ref().filter(|s| s.display == id) {
-        painter.rect_stroke(
-            zone_rect(sel.zone()),
-            3.0,
-            egui::Stroke::new(2.5_f32, visuals.selection.stroke.color),
-        );
+    if state.item_drag.is_none() {
+        if let Some(sel) = state.selection.as_ref().filter(|s| s.display == id) {
+            painter.rect_stroke(
+                canvas.zone_rect(sel.zone()),
+                3.0,
+                egui::Stroke::new(2.5_f32, visuals.selection.stroke.color),
+            );
+        }
     }
 
-    // Interaction
+    // What is under the pointer: the top-most rule (body or edges), else the dynamic
+    // zone's edges.
+    let hit = |pos: egui::Pos2| -> Option<(Target, Placement, Edges)> {
+        for (i, zone) in rules.iter().rev() {
+            let r = canvas.zone_rect(zone.zone());
+            if r.expand(EDGE_GRAB / 2.0).contains(pos) {
+                return Some((Target::Rule(*i), zone.clone(), edges_near(r, pos)));
+            }
+        }
+        let dz = dynamic.as_ref()?;
+        let r = canvas.zone_rect(dz.zone());
+        let edges = edges_near(r, pos);
+        (r.expand(EDGE_GRAB / 2.0).contains(pos) && edges.any())
+            .then(|| (Target::Dynamic, dz.clone(), edges))
+    };
+
+    // Cursor feedback.
+    if state.item_drag.is_none() && response.hovered() {
+        if let Some((_, _, edges)) = response.hover_pos().and_then(hit) {
+            ui.ctx().set_cursor_icon(if edges.any() {
+                resize_cursor(edges)
+            } else {
+                egui::CursorIcon::Grab
+            });
+        }
+    }
+
+    let mut commit = None;
     if response.drag_started() {
         if let Some(pos) = response.interact_pointer_pos() {
-            state.drag_from = Some((id.to_string(), cell_at(pos)));
+            match hit(pos) {
+                Some((target, zone, edges)) => {
+                    match target {
+                        Target::Rule(i) => {
+                            select_rule(state, i, zone.clone(), &layout.rules[i].apps);
+                        }
+                        Target::Dynamic => {
+                            state.editing_rule = None;
+                            state.apps.clear();
+                            state.selection = Some(zone.clone());
+                        }
+                    }
+                    let (col, row) = canvas.cell_at(pos);
+                    let z = zone.zone();
+                    state.item_drag = Some(ItemDrag {
+                        target,
+                        grab: (col.saturating_sub(z.col), row.saturating_sub(z.row)),
+                        edges,
+                        start: zone.clone(),
+                        preview: zone,
+                    });
+                }
+                None => state.drag_from = Some((id.to_string(), canvas.cell_at(pos))),
+            }
         }
     }
     if response.dragged() {
-        if let (Some((from_id, from)), Some(pos)) =
-            (&state.drag_from, response.interact_pointer_pos())
-        {
-            if from_id == id {
-                state.selection = Some(Placement::new(id, zone_from_drag(*from, cell_at(pos))));
+        if let Some(pos) = response.interact_pointer_pos() {
+            if let Some(drag) = state.item_drag.as_mut() {
+                ui.ctx().set_cursor_icon(if drag.edges.any() {
+                    resize_cursor(drag.edges)
+                } else {
+                    egui::CursorIcon::Grabbing
+                });
+                drag.preview = drag_preview(drag, pos, &canvas, &state.canvases);
+            } else if let Some((from_id, from)) = &state.drag_from {
+                if from_id == id {
+                    state.selection = Some(Placement::new(
+                        id,
+                        zone_from_drag(*from, canvas.cell_at(pos)),
+                    ));
+                }
             }
         }
     }
     if response.drag_stopped() {
         state.drag_from = None;
+        if let Some(drag) = state.item_drag.take() {
+            if drag.preview != drag.start {
+                commit = Some((drag.target, drag.preview));
+            }
+        }
     }
     if response.clicked() {
         if let Some(pos) = response.interact_pointer_pos() {
-            let (col, row) = cell_at(pos);
-            let hit = |z: Zone| {
+            let (col, row) = canvas.cell_at(pos);
+            let inside = |z: Zone| {
                 (z.col..z.col + z.w).contains(&col) && (z.row..z.row + z.h).contains(&row)
             };
             // The last rule drawn is the one on top.
-            let rule = layout
-                .rules
-                .iter()
-                .enumerate()
-                .rev()
-                .find(|(_, r)| r.zone.display == id && hit(r.zone.zone()));
-            match rule {
-                Some((i, r)) => select_rule(state, i, r.zone.clone(), &r.apps),
+            match rules.iter().rev().find(|(_, z)| inside(z.zone())) {
+                Some((i, z)) => select_rule(state, *i, z.clone(), &layout.rules[*i].apps),
                 None => {
                     state.editing_rule = None;
                     state.apps.clear();
@@ -352,6 +554,33 @@ fn display_canvas(
             }
         }
     }
+
+    state.canvases_next.push(canvas);
+    commit
+}
+
+/// Where a dragged item would go with the pointer at `pos`. Moves can land on any display
+/// drawn in the last frame (keeping the zone's proportion if its grid differs); resizes
+/// stay on the item's own display.
+fn drag_preview(drag: &ItemDrag, pos: egui::Pos2, own: &Canvas, all: &[Canvas]) -> Placement {
+    let start = drag.start.zone();
+    if drag.edges.any() {
+        let zone = zone_resized(start, drag.edges, own.cell_at(pos));
+        return Placement::new(&drag.start.display, zone);
+    }
+    let target = all.iter().find(|c| c.rect.contains(pos)).unwrap_or(own);
+    let from_grid = all
+        .iter()
+        .find(|c| c.id == drag.start.display)
+        .map_or(own.grid, |c| c.grid);
+    let (zone, grab) = if target.id == drag.start.display {
+        (start, drag.grab)
+    } else {
+        let z = start.rescaled(from_grid, target.grid);
+        (z, (drag.grab.0.min(z.w - 1), drag.grab.1.min(z.h - 1)))
+    };
+    let moved = zone_moved(zone, grab, target.cell_at(pos), target.grid);
+    Placement::new(&target.id, moved)
 }
 
 /// The rules of the layout as a clickable list (also handy when rules overlap).
@@ -392,6 +621,7 @@ fn clear_selection(state: &mut State) {
     state.selection = None;
     state.editing_rule = None;
     state.drag_from = None;
+    state.item_drag = None;
     state.apps.clear();
     state.error = None;
 }

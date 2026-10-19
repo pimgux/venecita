@@ -390,3 +390,69 @@ fn windows_line_endings_are_kept() {
     );
     assert!(out.contains("gap = 12"));
 }
+
+const GRID_8X4: GridSize = GridSize { cols: 8, rows: 4 };
+
+#[test]
+fn moving_a_zone_keeps_its_size_and_stays_inside() {
+    let z = Zone::new(0, 0, 4, 2);
+    // Grabbed at its second column, dropped with the pointer on column 5: starts at 4.
+    assert_eq!(
+        zone_moved(z, (1, 0), (5, 1), GRID_8X4),
+        Zone::new(4, 1, 4, 2)
+    );
+    // Pushed past the right/bottom edges: stops at the edge.
+    assert_eq!(
+        zone_moved(z, (0, 0), (7, 3), GRID_8X4),
+        Zone::new(4, 2, 4, 2)
+    );
+    // Pushed past the left/top edges.
+    assert_eq!(
+        zone_moved(z, (3, 1), (0, 0), GRID_8X4),
+        Zone::new(0, 0, 4, 2)
+    );
+    // Onto a smaller grid: the zone shrinks to fit.
+    let tiny = GridSize { cols: 2, rows: 2 };
+    assert_eq!(zone_moved(z, (0, 0), (1, 1), tiny), Zone::new(0, 0, 2, 2));
+}
+
+#[test]
+fn resizing_moves_only_the_held_edges() {
+    let z = Zone::new(2, 1, 3, 2); // columns 2..=4, rows 1..=2
+    let right = Edges {
+        right: true,
+        ..Default::default()
+    };
+    assert_eq!(zone_resized(z, right, (6, 0)), Zone::new(2, 1, 5, 2));
+    let left = Edges {
+        left: true,
+        ..Default::default()
+    };
+    assert_eq!(zone_resized(z, left, (0, 3)), Zone::new(0, 1, 5, 2));
+    let top_left = Edges {
+        left: true,
+        top: true,
+        ..Default::default()
+    };
+    assert_eq!(zone_resized(z, top_left, (3, 2)), Zone::new(3, 2, 2, 1));
+    let bottom = Edges {
+        bottom: true,
+        ..Default::default()
+    };
+    assert_eq!(zone_resized(z, bottom, (4, 3)), Zone::new(2, 1, 3, 3));
+}
+
+#[test]
+fn resizing_past_the_opposite_edge_stops_at_one_cell() {
+    let z = Zone::new(2, 1, 3, 2);
+    let left = Edges {
+        left: true,
+        ..Default::default()
+    };
+    assert_eq!(zone_resized(z, left, (7, 1)), Zone::new(4, 1, 1, 2));
+    let top = Edges {
+        top: true,
+        ..Default::default()
+    };
+    assert_eq!(zone_resized(z, top, (2, 3)), Zone::new(2, 2, 3, 1));
+}

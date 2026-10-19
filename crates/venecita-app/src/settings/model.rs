@@ -578,6 +578,57 @@ pub fn zone_from_drag(from: (u8, u8), to: (u8, u8)) -> Zone {
     Zone::new(col, row, w, h)
 }
 
+/// Which edges of a zone a resize drag holds (two of them at a corner).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Edges {
+    /// The left edge.
+    pub left: bool,
+    /// The right edge.
+    pub right: bool,
+    /// The top edge.
+    pub top: bool,
+    /// The bottom edge.
+    pub bottom: bool,
+}
+
+impl Edges {
+    /// `true` if any edge is held (a resize), `false` for a drag by the body (a move).
+    pub fn any(&self) -> bool {
+        self.left || self.right || self.top || self.bottom
+    }
+}
+
+/// The zone after dragging it by its body to the cell `cursor`. `grab` is the cell of the
+/// zone the pointer held, relative to its top-left cell. The size is kept (clamped to the
+/// grid) and the zone stays inside the grid.
+pub fn zone_moved(zone: Zone, grab: (u8, u8), cursor: (u8, u8), grid: GridSize) -> Zone {
+    let z = zone.clamped(grid);
+    let col = cursor.0.saturating_sub(grab.0).min(grid.cols - z.w);
+    let row = cursor.1.saturating_sub(grab.1).min(grid.rows - z.h);
+    Zone::new(col, row, z.w, z.h)
+}
+
+/// The zone after dragging the `edges` it was grabbed by to the cell `cursor`. The other
+/// edges stay put, and the zone never gets smaller than one cell (an edge dragged past the
+/// opposite one stops there).
+pub fn zone_resized(zone: Zone, edges: Edges, cursor: (u8, u8)) -> Zone {
+    let (mut left, mut right) = (zone.col, zone.col + zone.w - 1);
+    let (mut top, mut bottom) = (zone.row, zone.row + zone.h - 1);
+    if edges.left {
+        left = cursor.0.min(right);
+    }
+    if edges.right {
+        right = cursor.0.max(left);
+    }
+    if edges.top {
+        top = cursor.1.min(bottom);
+    }
+    if edges.bottom {
+        bottom = cursor.1.max(top);
+    }
+    Zone::new(left, top, right - left + 1, bottom - top + 1)
+}
+
 /// How to recognise a connected display in the configuration: the built-in panel by
 /// `builtin = true`, an external one by its name (plus its serial when the monitor reports
 /// a real one, which tells identical models apart).
