@@ -28,8 +28,29 @@ objc2-core-graphics = "0.3"
 objc2-application-services = "0.3"
 block2 = "0.6"
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Devices_Display",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_Storage_FileSystem",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Registry",
+    "Win32_System_Threading",
+    "Win32_UI_Accessibility",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
 # Tests against the real macOS desktop. They need the main thread (so no libtest harness)
 # and the Accessibility permission, and only run when VENECITA_DESKTOP_TESTS=1.
 [[test]]
 name = "macos_desktop"
+harness = false
+
+# The same contract on a real Windows desktop (opt-in: VENECITA_DESKTOP_TESTS=1).
+[[test]]
+name = "windows_desktop"
 harness = false

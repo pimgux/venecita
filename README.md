@@ -3,7 +3,7 @@
 > A keyboard-driven window manager that **remembers where every application belongs**.
 > macOS first, then Windows and Linux. Written in Rust. Licensed under GPL-3.0.
 
-**Status: early development.** See [the roadmap](#roadmap).
+**Status: early development.** Runs on macOS and Windows 10/11. See [the roadmap](#roadmap).
 
 ## Why
 
@@ -50,6 +50,25 @@ cargo run --release -p venecita-app --bin venecita-dock
 
 On macOS, Venecita Dock needs the **Accessibility** permission
 (System Settings → Privacy & Security → Accessibility).
+
+## Windows
+
+Download `venecita-dock-…-windows-x86_64.zip` from the
+[Releases](https://github.com/pimgux/venecita/releases), unzip it anywhere and run
+`venecita-dock.exe`. It lives in the notification area (next to the clock).
+
+- The executable is not signed yet, so SmartScreen may warn the first time:
+  choose *More info → Run anyway*.
+- The configuration is `%APPDATA%\venecita-dock\config.toml` and the logs are in
+  `%LOCALAPPDATA%\venecita-dock\logs\`.
+- Apps are identified by their executable name, e.g. `apps = ["code.exe", "firefox.exe"]`
+  (the `.exe` is optional) or by their product name (`"Visual Studio Code"`).
+- Positions and sizes are in physical pixels, so gaps are exact on monitors with different
+  scaling.
+- Windows of apps running as administrator can't be moved by a normal app (Windows
+  forbids it); run Venecita Dock as administrator too if you need that.
+- `cmd` in shortcuts is the Windows key; many `Win+…` combinations are reserved by
+  Windows itself.
 
 ## Roadmap
 

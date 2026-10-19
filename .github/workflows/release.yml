@@ -1,0 +1,42 @@
+name: Release
+
+# Pushing a tag such as v0.1.0 builds the executables and publishes a GitHub Release.
+# Tags with a hyphen (v0.1.0-alpha.1) are marked as pre-releases.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace
+      - run: cargo build --release -p venecita-app --bin venecita-dock
+      - name: Package
+        id: package
+        shell: pwsh
+        run: |
+          $name = "venecita-dock-${{ github.ref_name }}-windows-x86_64"
+          New-Item -ItemType Directory $name | Out-Null
+          Copy-Item target/release/venecita-dock.exe $name/
+          Copy-Item README.md, LICENSE $name/
+          Copy-Item examples/config.toml "$name/config.example.toml"
+          Compress-Archive -Path $name -DestinationPath "$name.zip"
+          $hash = (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $name.zip" | Out-File -Encoding ascii "$name.zip.sha256"
+          "zip=$name.zip" >> $env:GITHUB_OUTPUT
+      - uses: softprops/action-gh-release@v2
+        with:
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          files: |
+            ${{ steps.package.outputs.zip }}
+            ${{ steps.package.outputs.zip }}.sha256

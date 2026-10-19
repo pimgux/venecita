@@ -9,7 +9,6 @@
 use std::time::{Duration, Instant};
 
 use eframe::egui;
-use objc2_app_kit::{NSApplicationActivationPolicy, NSWorkspace};
 use venecita_core::config::{Layout, Placement};
 use venecita_core::display::resolve_displays;
 use venecita_core::grid::{GridSize, Zone};
@@ -640,8 +639,7 @@ fn parse_apps(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Regular (Dock) applications running now, as (bundle id, name), refreshed every few
-/// seconds.
+/// The applications running now, as (app id, name), refreshed every few seconds.
 fn refresh_running(state: &mut State) {
     if state
         .running_refreshed
@@ -650,20 +648,7 @@ fn refresh_running(state: &mut State) {
         return;
     }
     state.running_refreshed = Some(Instant::now());
-    let workspace = NSWorkspace::sharedWorkspace();
-    let mut apps: Vec<(String, String)> = workspace
-        .runningApplications()
-        .iter()
-        .filter(|a| a.activationPolicy() == NSApplicationActivationPolicy::Regular)
-        .filter_map(|a| {
-            let bundle = a.bundleIdentifier()?.to_string();
-            let name = a.localizedName().map(|n| n.to_string()).unwrap_or_default();
-            Some((bundle, name))
-        })
-        .collect();
-    apps.sort_by_key(|(_, name)| name.to_lowercase());
-    apps.dedup();
-    state.running = apps;
+    state.running = crate::system::running_apps();
 }
 
 #[cfg(test)]

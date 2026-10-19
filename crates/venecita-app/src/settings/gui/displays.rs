@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use eframe::egui;
-use objc2::MainThreadMarker;
 use venecita_core::display::{resolve_displays, DisplayInfo, DisplayMatcher};
 use venecita_core::grid::{GridSize, MAX_GRID_CELLS};
 
@@ -38,15 +37,12 @@ impl State {
             return;
         }
         self.refreshed = Some(Instant::now());
-        let Some(mtm) = MainThreadMarker::new() else {
-            return;
-        };
-        match venecita_platform::macos::displays::list(mtm) {
+        match crate::system::connected_displays() {
             Ok(list) => {
                 self.connected = list;
                 self.error = None;
             }
-            Err(e) => self.error = Some(e.to_string()),
+            Err(e) => self.error = Some(e),
         }
     }
 }

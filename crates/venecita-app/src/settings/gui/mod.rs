@@ -269,10 +269,7 @@ fn show_load_error(ctx: &egui::Context, i18n: &I18n, path: &std::path::Path, err
         ui.colored_label(ui.visuals().error_fg_color, error);
         ui.add_space(8.0);
         if ui.button(i18n.get("open-file")).clicked() {
-            let _ = std::process::Command::new("open")
-                .arg("-t")
-                .arg(path)
-                .spawn();
+            crate::system::open_text_file(path);
         }
     });
 }

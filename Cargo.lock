@@ -611,7 +611,7 @@ version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab8ecd87370524b461f8557c119c405552c396ed91fc0a8eec68679eab26f94a"
 dependencies = [
- "libloading 0.7.4",
+ "libloading 0.8.9",
 ]
 
 [[package]]
@@ -735,6 +735,12 @@ checksum = "b1fe0049ce51d0fb414d029e668dd72eb30bc2b739bf34296ed97bd33df544f3"
 dependencies = [
  "bytemuck",
 ]
+
+[[package]]
+name = "embed-manifest"
+version = "1.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba92c8f4591bf29f89716b45e5f5f56577adbb81426e5620c6e994da7c88bb7a"
 
 [[package]]
 name = "epaint"
@@ -1333,7 +1339,7 @@ dependencies = [
  "bitflags 2.13.2",
  "com",
  "libc",
- "libloading 0.7.4",
+ "libloading 0.8.9",
  "thiserror 1.0.69",
  "widestring",
  "winapi",
@@ -3644,6 +3650,7 @@ dependencies = [
  "dispatch2",
  "eframe",
  "egui",
+ "embed-manifest",
  "fluent",
  "getrandom",
  "global-hotkey",
@@ -3662,6 +3669,7 @@ dependencies = [
  "unic-langid",
  "venecita-core",
  "venecita-platform",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3694,6 +3702,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "venecita-core",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4019,7 +4028,7 @@ dependencies = [
  "js-sys",
  "khronos-egl",
  "libc",
- "libloading 0.7.4",
+ "libloading 0.8.9",
  "log",
  "metal",
  "naga",

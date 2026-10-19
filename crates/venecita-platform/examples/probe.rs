@@ -1,4 +1,4 @@
-//! Manual test tool for the platform backend.
+//! Manual test tool for the platform backend (macOS and Windows).
 //!
 //! ```sh
 //! cargo run -p venecita-platform --example probe              # list displays and windows
@@ -7,7 +7,7 @@
 //! cargo run -p venecita-platform --example probe -- tabbar    # draw a test tab bar for 6 s
 //! ```
 //!
-//! The terminal running it needs the Accessibility permission
+//! On macOS the terminal running it needs the Accessibility permission
 //! (System Settings → Privacy & Security → Accessibility).
 
 #[cfg(target_os = "macos")]
@@ -173,7 +173,158 @@ fn main() {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
 fn main() {
-    eprintln!("The probe currently supports macOS only.");
+    use std::sync::Arc;
+    use std::time::Instant;
+
+    use venecita_core::grid::{zone_rect, GridSize, Zone};
+    use venecita_core::rules::app_matches;
+    use venecita_platform::windows::WinPlatform;
+    use venecita_platform::Platform;
+    use windows_sys::Win32::UI::HiDpi::{
+        SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        DispatchMessageW, GetMessageW, TranslateMessage, MSG,
+    };
+
+    /// Pumps Win32 messages (hooks and overlays deliver their callbacks through it).
+    fn message_loop() {
+        let mut msg = MSG::default();
+        // SAFETY: the standard message loop.
+        unsafe {
+            while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+        }
+    }
+
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_writer(std::io::stderr)
+        .init();
+    // Same coordinates as the app: physical pixels on every monitor.
+    // SAFETY: plain call.
+    unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+    let platform = WinPlatform::new();
+    let args: Vec<String> = std::env::args().skip(1).collect();
+
+    match args.first().map(String::as_str) {
+        None | Some("list") => {
+            println!("== Displays ==");
+            for d in platform.displays().expect("displays") {
+                let (pw, ph) = d.pixel_size();
+                println!(
+                    "{:>14}  {:<28} builtin={:<5} {}x{}px vendor={:?} model={:?}",
+                    d.handle, d.name, d.builtin, pw, ph, d.vendor, d.model
+                );
+                println!(
+                    "                frame={:?}\n                work ={:?}",
+                    d.frame, d.work_area
+                );
+            }
+            println!("\n== Windows ==");
+            let focused = platform.focused_window().ok().flatten();
+            for w in platform.windows().expect("windows") {
+                let mark = if Some(w.id) == focused { "*" } else { " " };
+                println!(
+                    "{mark} {:>12} pid={:<6} {:<10} {:<28} {:<30} {:?}",
+                    w.id.to_string(),
+                    w.pid,
+                    format!("{:?}", w.kind),
+                    w.app.id,
+                    w.title.chars().take(30).collect::<String>(),
+                    w.frame
+                );
+            }
+        }
+        Some("move") => {
+            let name = args.get(1).expect("usage: probe move <app id or name>");
+            let window = platform
+                .windows()
+                .expect("windows")
+                .into_iter()
+                .find(|w| w.is_manageable() && app_matches(name, &w.app))
+                .unwrap_or_else(|| panic!("no normal window of `{name}` found"));
+            let (cx, cy) = window.frame.center();
+            let displays = platform.displays().expect("displays");
+            let display = displays
+                .iter()
+                .find(|d| d.frame.contains_point(cx, cy))
+                .unwrap_or(&displays[0]);
+            let target = zone_rect(
+                display.work_area,
+                GridSize::default(),
+                Zone::new(0, 0, 4, 4),
+                8.0,
+            );
+            platform.set_frame(window.id, target).expect("set_frame");
+            let actual = platform.window(window.id).expect("window").frame;
+            println!("requested {target:?}\nactual    {actual:?}");
+            platform.focus(window.id).expect("focus");
+        }
+        Some("watch") => {
+            let start = Instant::now();
+            platform
+                .start_events(Arc::new(move |event| {
+                    println!("[{:>7.3}s] {event:?}", start.elapsed().as_secs_f64())
+                }))
+                .expect("start_events");
+            println!(
+                "Watching events. Open/close/move windows, (un)plug displays… Ctrl-C to stop."
+            );
+            message_loop();
+        }
+        Some("tabbar") => {
+            use venecita_core::engine::{Tab, TabBar};
+            let windows: Vec<_> = platform
+                .windows()
+                .expect("windows")
+                .into_iter()
+                .filter(|w| w.is_manageable())
+                .take(3)
+                .collect();
+            let display = platform.displays().expect("displays").remove(0);
+            let wa = display.work_area;
+            let bar = TabBar {
+                id: "probe".into(),
+                frame: venecita_platform::Rect::new(wa.x + 8.0, wa.y + 8.0, wa.w / 2.0, 28.0),
+                tabs: windows
+                    .iter()
+                    .enumerate()
+                    .map(|(i, w)| Tab {
+                        window: w.id,
+                        label: format!("{} — {}", w.app.name, w.title),
+                        active: i == 0,
+                    })
+                    .collect(),
+            };
+            println!("tab bar at {:?}", bar.frame);
+            platform
+                .start_events(Arc::new(|e| {
+                    if let venecita_platform::PlatformEvent::TabClicked { id } = e {
+                        println!("clicked {id}");
+                    }
+                }))
+                .expect("start_events");
+            platform.show_tab_bar(&bar).expect("show");
+            let seconds: u64 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(6);
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(seconds));
+                std::process::exit(0);
+            });
+            message_loop();
+        }
+        Some(other) => {
+            eprintln!("unknown command `{other}` (use list, move <app>, watch, tabbar [seconds])");
+            std::process::exit(2);
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn main() {
+    eprintln!("The probe supports macOS and Windows.");
 }

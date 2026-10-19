@@ -33,3 +33,30 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      # The Platform contract against the runner's real desktop.
+      - name: Windows desktop contract
+        if: runner.os == 'Windows'
+        env:
+          VENECITA_DESKTOP_TESTS: "1"
+        run: cargo test -p venecita-platform --test windows_desktop
+
+  # The Windows executable of every push, to try before tagging a release.
+  windows-exe:
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p venecita-app --bin venecita-dock
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item target/release/venecita-dock.exe dist/
+          Copy-Item README.md, LICENSE dist/
+          Copy-Item examples/config.toml dist/config.example.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: venecita-dock-windows-x86_64
+          path: dist/

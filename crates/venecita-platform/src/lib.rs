@@ -7,7 +7,7 @@
 //! | Backend | Status |
 //! |---|---|
 //! | [`macos::MacPlatform`] | Accessibility API + CoreGraphics + NSWorkspace |
-//! | Windows | phase 9 |
+//! | [`windows::WinPlatform`] | Win32: `EnumWindows`, `SetWinEventHook`, DisplayConfig |
 //! | Linux (X11) | phase 10 |
 //! | [`fake::FakePlatform`] | In-memory, used by tests on every OS |
 //!
@@ -27,6 +27,8 @@ mod debounce;
 pub mod fake;
 #[cfg(target_os = "macos")]
 pub mod macos;
+#[cfg(windows)]
+pub mod windows;
 
 pub use debounce::Debouncer;
 

@@ -24,7 +24,7 @@ project testable and portable.
 | `venecita-core` | serde, toml | No OS calls and no async. Contains geometry, the grid, config, rules, profiles, actions, stacks, focus and the engine. |
 | `venecita-platform` | core | `Platform` trait plus `macos`, `windows`, `linux` and `fake` backends. Platform-specific code goes behind `#[cfg(target_os)]`. |
 | `venecita-api` | core, axum, tokio | REST and WebSocket server. Talks to the engine through channels. |
-| `venecita-app` | all | Event loop, tray, global hotkeys, egui settings window and i18n. |
+| `venecita-app` | all | Tray app (`shell.rs`, shared) with a thin OS layer (`mac.rs`, `win.rs`), global hotkeys, egui settings window and i18n. |
 | `venecita-cli` | reqwest | A thin HTTP client for the API. |
 
 ## Key concepts

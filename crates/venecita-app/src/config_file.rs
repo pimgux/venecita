@@ -64,7 +64,19 @@ pub fn set_launch_at_login(path: &Path, enabled: bool) -> Result<(), String> {
         doc["general"] = toml_edit::table();
     }
     doc["general"]["launch_at_login"] = toml_edit::value(enabled);
-    std::fs::write(path, doc.to_string()).map_err(|e| e.to_string())
+    write_like(path, &text, &doc)
+}
+
+/// Writes `doc` back to `path` with the line endings of the original `text`: `toml_edit`
+/// writes `\n`, which would rewrite every line of a file saved with Windows line endings.
+fn write_like(path: &Path, text: &str, doc: &toml_edit::DocumentMut) -> Result<(), String> {
+    let out = doc.to_string();
+    let out = if text.contains("\r\n") {
+        out.replace("\r\n", "\n").replace('\n', "\r\n")
+    } else {
+        out
+    };
+    std::fs::write(path, out).map_err(|e| e.to_string())
 }
 
 /// The inline table `{ display = "lg43", col = 0, row = 0, w = 4, h = 4 }`.
@@ -127,7 +139,7 @@ pub fn save_pinned_rule(path: &Path, pin: &PinnedRule) -> Result<(), String> {
             rules.push(rule);
         }
     }
-    std::fs::write(path, doc.to_string()).map_err(|e| e.to_string())
+    write_like(path, &text, &doc)
 }
 
 #[cfg(test)]
@@ -249,6 +261,32 @@ mod tests {
         let mut p = pin(None, "x", venecita_core::Zone::new(0, 0, 1, 1));
         p.profile = "Nope".into();
         assert!(save_pinned_rule(&path, &p).unwrap_err().contains("Nope"));
+    }
+
+    #[test]
+    fn edits_keep_windows_line_endings() {
+        let path = temp_dir("crlf").join("config.toml");
+        let crlf = DEFAULT_CONFIG_TOML
+            .replace("\r\n", "\n")
+            .replace('\n', "\r\n");
+        std::fs::write(&path, &crlf).unwrap();
+        set_launch_at_login(&path, true).unwrap();
+        let p = PinnedRule {
+            profile: "Default".into(),
+            layout: "Laptop only".into(),
+            rule_index: None,
+            app_id: "notepad.exe".into(),
+            placement: Placement::new("laptop", venecita_core::Zone::new(0, 0, 4, 4)),
+        };
+        save_pinned_rule(&path, &p).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !text.replace("\r\n", "").contains('\n'),
+            "every line ends in CRLF"
+        );
+        let config = read(&path).unwrap();
+        assert!(config.general.launch_at_login);
+        assert_eq!(config.profile("Default").unwrap().layouts[2].rules.len(), 1);
     }
 
     #[test]
