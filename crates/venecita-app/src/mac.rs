@@ -252,7 +252,13 @@ impl App {
     fn on_menu(&mut self, command: MenuCommand) {
         match command {
             MenuCommand::Profile(name) => self.on_action(Action::ActivateProfile { name }),
-            MenuCommand::AutoProfile => self.on_action(Action::AutoProfile),
+            MenuCommand::ToggleAutoProfile => {
+                match menu::toggle_auto_profile(&self.driver.status()) {
+                    Some(action) => self.on_action(action),
+                    // Nothing to toggle; rebuild so the check mark the click flipped is restored.
+                    None => self.refresh_menu(),
+                }
+            }
             MenuCommand::RelayoutAll => self.on_action(Action::RelayoutAll),
             MenuCommand::TogglePause => self.on_action(Action::TogglePause),
             MenuCommand::ToggleLaunchAtLogin => {

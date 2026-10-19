@@ -26,14 +26,18 @@ use objc2::rc::Retained;
 use objc2::runtime::NSObject;
 use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
-    NSAutoresizingMaskOptions, NSBackingStoreType, NSColor, NSControlSize, NSNormalWindowLevel,
-    NSPanel, NSScreen, NSSegmentStyle, NSSegmentSwitchTracking, NSSegmentedControl,
-    NSWindowCollectionBehavior, NSWindowOrderingMode, NSWindowStyleMask,
+    NSAppearance, NSAppearanceCustomization, NSAppearanceNameDarkAqua, NSAutoresizingMaskOptions,
+    NSBackingStoreType, NSColor, NSControlSize, NSNormalWindowLevel, NSPanel, NSScreen,
+    NSSegmentStyle, NSSegmentSwitchTracking, NSSegmentedControl, NSWindowCollectionBehavior,
+    NSWindowOrderingMode, NSWindowStyleMask,
 };
 use objc2_core_graphics::{CGDisplayBounds, CGMainDisplayID};
 use objc2_foundation::{NSObjectProtocol, NSPoint, NSRect, NSSize, NSString};
 
 use crate::{EventSink, PlatformEvent, Rect, TabBar, WindowId};
+
+/// Opacity of the black backing behind the tabs, so they read well over any window.
+const TAB_BAR_BACKGROUND: f64 = 0.5;
 
 /// The event sink shared between the platform and the tab bar targets.
 pub(super) type SharedSink = Rc<RefCell<Option<EventSink>>>;
@@ -160,6 +164,16 @@ impl TabBars {
         // only on its windows' Space: on any other Space there is no window to stay just
         // above, so it would cover everything there.
         let panel = overlay_panel(mtm, frame, false);
+        // A half-transparent dark backing, and the dark appearance so the labels are light
+        // in both light and dark mode.
+        panel.setBackgroundColor(Some(&NSColor::colorWithCalibratedWhite_alpha(
+            0.0,
+            TAB_BAR_BACKGROUND,
+        )));
+        // SAFETY: reading an AppKit constant.
+        if let Some(dark) = NSAppearance::appearanceNamed(unsafe { NSAppearanceNameDarkAqua }) {
+            panel.setAppearance(Some(&dark));
+        }
 
         let bounds = NSRect::new(NSPoint::new(0.0, 0.0), frame.size);
         let control = NSSegmentedControl::initWithFrame(NSSegmentedControl::alloc(mtm), bounds);

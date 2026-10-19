@@ -4,6 +4,7 @@
 //! `tray.rs` turns these entries into real menu items.
 
 use venecita_core::engine::Status;
+use venecita_core::Action;
 
 use crate::i18n::{tr, Lang, Text};
 
@@ -12,8 +13,8 @@ use crate::i18n::{tr, Lang, Text};
 pub enum MenuCommand {
     /// Choose a profile by hand.
     Profile(String),
-    /// Back to automatic profile detection.
-    AutoProfile,
+    /// Turn automatic profile detection on or off (see [`toggle_auto_profile`]).
+    ToggleAutoProfile,
     /// Re-arrange every window.
     RelayoutAll,
     /// Pause/resume.
@@ -50,7 +51,7 @@ impl MenuCommand {
         }
         use MenuCommand::*;
         [
-            AutoProfile,
+            ToggleAutoProfile,
             RelayoutAll,
             TogglePause,
             ToggleLaunchAtLogin,
@@ -63,6 +64,27 @@ impl MenuCommand {
         ]
         .into_iter()
         .find(|c| c.id() == id)
+    }
+}
+
+/// What the "Automatic (by displays)" check item does when clicked.
+///
+/// * On → off: the current profile is kept from now on (chosen by hand), so connecting
+///   or disconnecting displays no longer switches profiles. Its layouts still follow the
+///   displays (lid open / closed), and if it doesn't fit at all another one is used until
+///   it fits again.
+/// * Off → on: profiles follow the connected displays again.
+///
+/// Returns `None` when automatic mode is on but no profile fits the displays: there is
+/// nothing to keep.
+pub fn toggle_auto_profile(status: &Status) -> Option<Action> {
+    if status.manual {
+        Some(Action::AutoProfile)
+    } else {
+        status
+            .profile
+            .clone()
+            .map(|name| Action::ActivateProfile { name })
     }
 }
 
@@ -156,7 +178,7 @@ pub fn build(status: &Status, flags: &AppFlags, lang: Lang) -> Vec<MenuEntry> {
     m.push(Label(t(Text::Profiles)));
     m.push(Check {
         text: t(Text::Automatic),
-        command: MenuCommand::AutoProfile,
+        command: MenuCommand::ToggleAutoProfile,
         checked: !status.manual,
         enabled: true,
     });
@@ -343,5 +365,46 @@ mod tests {
                 ..
             }
         )));
+    }
+
+    #[test]
+    fn automatic_check_item_toggles() {
+        // On (no profile chosen by hand) → keep the current profile.
+        let mut s = status();
+        assert_eq!(
+            toggle_auto_profile(&s),
+            Some(Action::ActivateProfile {
+                name: "Casa".into()
+            })
+        );
+        // Off → back to automatic.
+        s.manual = true;
+        assert_eq!(toggle_auto_profile(&s), Some(Action::AutoProfile));
+        // On, but nothing fits: nothing to keep.
+        let mut s = status();
+        s.profile = None;
+        assert_eq!(toggle_auto_profile(&s), None);
+    }
+
+    #[test]
+    fn automatic_is_checked_unless_a_profile_was_chosen() {
+        let auto_checked = |s: &Status| {
+            build(s, &AppFlags::default(), Lang::En)
+                .into_iter()
+                .any(|e| {
+                    matches!(
+                        e,
+                        MenuEntry::Check {
+                            command: MenuCommand::ToggleAutoProfile,
+                            checked: true,
+                            ..
+                        }
+                    )
+                })
+        };
+        let mut s = status();
+        assert!(auto_checked(&s));
+        s.manual = true;
+        assert!(!auto_checked(&s));
     }
 }
