@@ -46,9 +46,7 @@ use objc2_foundation::{NSNotification, NSNotificationCenter, NSObjectProtocol, N
 
 use super::ax::{attr, check, notification, Element};
 use super::windows;
-use crate::{
-    AppIdentity, Debouncer, EventSink, Pid, PlatformError, PlatformEvent, Rect, Result, WindowId,
-};
+use crate::{AppIdentity, Debouncer, EventSink, Pid, PlatformError, PlatformEvent, Rect, Result};
 
 /// How long to wait after the last display callback before reporting `DisplaysChanged`.
 const DISPLAY_DEBOUNCE: Duration = Duration::from_millis(500);
@@ -203,7 +201,7 @@ fn observe_app(hub_rc: &Rc<RefCell<Hub>>, pid: Pid, app: AppIdentity) -> Observe
     }
 
     let mut found = Vec::new();
-    for el in obs.app_element.elements(attr::WINDOWS) {
+    for el in windows::window_elements(&obs.app_element) {
         obs.watch_window(&weak, pid, &el);
         if let Some(info) = windows::window_info(pid, &app, &el) {
             found.push(info);
@@ -301,11 +299,8 @@ unsafe extern "C-unwind" fn ax_callback(
                 }
             }
             (notification::FOCUSED_WINDOW_CHANGED, _) => {
-                if let Some(n) = element.window_number() {
-                    events.push(PlatformEvent::WindowFocused {
-                        id: windows::window_id(pid, n),
-                    });
-                }
+                let app = obs.app.clone();
+                events.extend(focused_window_events(obs, &hub_weak, pid, &app, &element));
             }
             (notification::WINDOW_MOVED | notification::WINDOW_RESIZED, _) => {
                 let changed = element
@@ -532,13 +527,57 @@ fn on_activate(hub: &Rc<RefCell<Hub>>, n: &NSNotification) {
         return;
     };
     let pid = app.processIdentifier();
-    let focused = Element::application(pid)
-        .element(attr::FOCUSED_WINDOW)
-        .and_then(|w| w.window_number());
-    if let Some(number) = focused {
-        let id: WindowId = windows::window_id(pid, number);
-        emit(hub, vec![PlatformEvent::WindowFocused { id }]);
-    }
+    let Some(window) = Element::application(pid).element(attr::FOCUSED_WINDOW) else {
+        return;
+    };
+    let weak = Rc::downgrade(hub);
+    let events = {
+        let mut h = hub.borrow_mut();
+        match h.apps.get_mut(&pid) {
+            Some(obs) => {
+                let app = obs.app.clone();
+                focused_window_events(obs, &weak, pid, &app, &window)
+            }
+            None => window
+                .window_number()
+                .map(|n| PlatformEvent::WindowFocused {
+                    id: windows::window_id(pid, n),
+                })
+                .into_iter()
+                .collect(),
+        }
+    };
+    emit(hub, events);
+}
+
+/// Events for a window that just got the focus: a fresh [`PlatformEvent::WindowCreated`]
+/// with its current details, then [`PlatformEvent::WindowFocused`].
+///
+/// Re-reading the window on focus catches windows we missed or misjudged when they
+/// appeared: apps that never report their windows as created (Finder), and windows that
+/// start out as something else (a splash screen, a dialog) and only later become standard
+/// windows (some wxWidgets/Qt apps). The engine places a window it didn't know, or one
+/// that just became a normal window, and ignores the rest.
+fn focused_window_events(
+    obs: &mut AppObserver,
+    hub: &Weak<RefCell<Hub>>,
+    pid: Pid,
+    app: &AppIdentity,
+    window: &Element,
+) -> Vec<PlatformEvent> {
+    let Some(number) = window.window_number() else {
+        return Vec::new();
+    };
+    // Make sure we hear when it closes.
+    obs.watch_window(hub, pid, window);
+    let mut events: Vec<PlatformEvent> = windows::window_info(pid, app, window)
+        .map(PlatformEvent::WindowCreated)
+        .into_iter()
+        .collect();
+    events.push(PlatformEvent::WindowFocused {
+        id: windows::window_id(pid, number),
+    });
+    events
 }
 
 fn on_wake(hub: &Rc<RefCell<Hub>>, _n: &NSNotification) {

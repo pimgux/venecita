@@ -16,6 +16,7 @@ use crate::{Pid, Rect};
 #[allow(missing_docs)] // names are self-explanatory AX constants
 pub mod attr {
     pub const WINDOWS: &str = "AXWindows";
+    pub const CHILDREN: &str = "AXChildren";
     pub const POSITION: &str = "AXPosition";
     pub const SIZE: &str = "AXSize";
     pub const TITLE: &str = "AXTitle";

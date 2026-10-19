@@ -820,3 +820,193 @@ fn turning_dimming_on_in_the_config_applies_at_once() {
     desk.driver.reload_config(config);
     assert_eq!(desk.fake.layering().unwrap().dim, Some(0.3));
 }
+
+// --- Extra focus mode (phase 6) -----------------------------------------------------------
+
+fn in_a_stack(desk: &Desk, id: WindowId) -> bool {
+    desk.driver.engine().stacks().any(|(_, s)| s.contains(id))
+}
+
+/// The enlarged frame on the LG: 80 % of its work area, centered.
+fn big_on_lg() -> Rect {
+    setups::lg43().work_area.centered_scaled(0.8)
+}
+
+#[test]
+fn focus_mode_enlarges_dims_and_restores_exactly() {
+    let mut desk = Desk::new(setups::home_open());
+    let code = desk.open(VSCODE);
+    desk.focus(code);
+    let home = desk.frame(code);
+
+    desk.driver.on_action(Action::FocusModeToggle);
+    assert!(desk.driver.engine().focus_mode());
+    assert_eq!(desk.frame(code), big_on_lg());
+    let l = desk.fake.layering().unwrap();
+    assert_eq!(
+        (l.focused, l.dim),
+        (Some(code), Some(0.6)),
+        "focus.dim_opacity of the example"
+    );
+
+    // The platform reports our resize: it must not count as dragging it out of its zone.
+    desk.fake.user_move(code, big_on_lg());
+    desk.pump();
+    assert!(in_a_stack(&desk, code), "still in its zone's stack");
+
+    desk.driver.on_action(Action::FocusModeToggle);
+    assert!(!desk.driver.engine().focus_mode());
+    assert_eq!(desk.frame(code), home, "back exactly where it was");
+    assert_eq!(
+        desk.fake.layering().unwrap().dim,
+        None,
+        "dimming is off in the example"
+    );
+}
+
+#[test]
+fn focus_mode_follows_the_focus() {
+    let mut desk = Desk::new(setups::home_open());
+    let code = desk.open(VSCODE);
+    let fox = desk.open(FIREFOX);
+    desk.focus(code);
+    let (code_home, fox_home) = (desk.frame(code), desk.frame(fox));
+
+    desk.driver.on_action(Action::FocusModeToggle);
+    desk.focus(fox); // e.g. Cmd-Tab
+    assert_eq!(desk.frame(code), code_home, "the previous window goes back");
+    assert_eq!(desk.frame(fox), big_on_lg(), "the new one is enlarged");
+    assert_eq!(
+        desk.fake.layering().unwrap().focused,
+        Some(fox),
+        "the dim layer follows"
+    );
+
+    // A late report of VS Code's enlarged frame arrives after it was restored, then the
+    // report of the restore itself.
+    desk.fake.user_move(code, big_on_lg());
+    desk.pump();
+    assert!(
+        in_a_stack(&desk, code),
+        "a stale report doesn't take it out of its zone"
+    );
+    desk.fake.user_move(code, code_home);
+    desk.pump();
+    assert!(in_a_stack(&desk, code));
+
+    desk.driver.on_action(Action::FocusModeToggle);
+    assert_eq!(desk.frame(fox), fox_home);
+    assert_eq!(desk.frame(code), code_home);
+}
+
+#[test]
+fn a_display_change_ends_focus_mode_cleanly() {
+    let mut desk = Desk::new(setups::home_open());
+    let code = desk.open(VSCODE);
+    desk.focus(code);
+    desk.driver.on_action(Action::FocusModeToggle);
+
+    desk.fake.set_displays(setups::home_closed());
+    desk.pump();
+    assert!(!desk.driver.engine().focus_mode());
+    assert_eq!(
+        desk.frame(code),
+        zone_on(&setups::lg43(), 8, 8, Zone::new(0, 0, 4, 4)),
+        "laid out for the new displays"
+    );
+    assert_eq!(desk.fake.layering().unwrap().dim, None);
+}
+
+#[test]
+fn arranging_actions_end_focus_mode_first() {
+    let mut desk = Desk::new(setups::home_open());
+    let code = desk.open(VSCODE);
+    desk.focus(code);
+    desk.driver.on_action(Action::FocusModeToggle);
+
+    // Move one cell right from its real zone (0,0,4,4), not from the enlarged frame.
+    desk.driver.on_action(Action::MoveZone {
+        dir: venecita_core::Direction::Right,
+    });
+    assert!(!desk.driver.engine().focus_mode());
+    assert_eq!(
+        desk.frame(code),
+        zone_on(&setups::lg43(), 8, 8, Zone::new(1, 0, 4, 4))
+    );
+
+    // Pausing ends it too.
+    desk.driver.on_action(Action::FocusModeToggle);
+    desk.driver.on_action(Action::TogglePause);
+    assert!(!desk.driver.engine().focus_mode());
+}
+
+#[test]
+fn a_window_joining_the_zone_keeps_the_enlarged_one_enlarged() {
+    let mut desk = Desk::new(setups::home_open());
+    let code = desk.open_titled(VSCODE, "one");
+    desk.focus(code);
+    desk.driver.on_action(Action::FocusModeToggle);
+
+    // A second VS Code window joins the same zone; its stack is re-placed.
+    desk.open_titled(VSCODE, "two");
+    assert_eq!(desk.frame(code), big_on_lg(), "still enlarged");
+
+    desk.driver.on_action(Action::FocusModeToggle);
+    let zone = zone_on(&setups::lg43(), 8, 8, Zone::new(0, 0, 4, 4));
+    assert_eq!(
+        desk.frame(code),
+        below_tabs(zone),
+        "goes back to its new place, under the tabs"
+    );
+}
+
+#[test]
+fn focus_mode_needs_a_focused_window() {
+    let mut desk = Desk::new(setups::home_open());
+    let requests = desk.driver.on_action(Action::FocusModeToggle);
+    assert!(!desk.driver.engine().focus_mode());
+    assert!(matches!(
+        requests.as_slice(),
+        [UiRequest::Notice(
+            venecita_core::engine::Notice::NoFocusedWindow
+        )]
+    ));
+}
+
+// --- Windows that change kind after appearing ---------------------------------------------
+
+#[test]
+fn a_window_that_becomes_standard_later_is_placed_on_focus() {
+    let mut desk = Desk::new(setups::home_open());
+    // Appears as a dialog-like window (e.g. a wxWidgets app's splash/loading window).
+    let start = Rect::new(354.0, 215.0, 1501.0, 1110.0);
+    let id = desk.fake.open_window_of_kind(
+        7,
+        AppIdentity::new(VSCODE, "Code"),
+        "loading",
+        start,
+        WindowKind::Dialog,
+    );
+    desk.pump();
+    assert_eq!(desk.frame(id), start, "dialogs are left alone");
+
+    // It turns into a standard window without telling anyone; the next focus re-reads it.
+    desk.fake.set_window_kind(id, WindowKind::Normal);
+    desk.focus(id);
+    assert_eq!(
+        desk.frame(id),
+        zone_on(&setups::lg43(), 8, 8, Zone::new(0, 0, 4, 4)),
+        "placed by its rule once it is a normal window"
+    );
+}
+
+#[test]
+fn refocusing_a_known_window_respects_where_the_user_put_it() {
+    let mut desk = Desk::new(setups::home_open());
+    let code = desk.open(VSCODE);
+    let moved = Rect::new(500.0, 400.0, 900.0, 700.0);
+    desk.fake.user_move(code, moved);
+    desk.pump();
+    desk.focus(code); // re-read on focus: same kind, so nothing moves
+    assert_eq!(desk.frame(code), moved);
+}

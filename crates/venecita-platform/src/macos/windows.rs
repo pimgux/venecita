@@ -92,10 +92,26 @@ pub fn window_info(pid: Pid, app: &AppIdentity, el: &Element) -> Option<WindowIn
     })
 }
 
+/// The window elements of an application.
+///
+/// `AXWindows` is the usual list, but some apps leave it empty: Finder does, while its
+/// windows are listed among the application's `AXChildren`. Both are read and merged.
+pub fn window_elements(app: &Element) -> Vec<Element> {
+    let mut seen = std::collections::HashSet::new();
+    app.elements(attr::WINDOWS)
+        .into_iter()
+        .chain(
+            app.elements(attr::CHILDREN)
+                .into_iter()
+                .filter(|el| el.string(attr::ROLE).as_deref() == Some(role::WINDOW)),
+        )
+        .filter(|el| el.window_number().is_some_and(|n| seen.insert(n)))
+        .collect()
+}
+
 /// All windows of one application.
 pub fn app_windows(pid: Pid, app: &AppIdentity) -> Vec<WindowInfo> {
-    Element::application(pid)
-        .elements(attr::WINDOWS)
+    window_elements(&Element::application(pid))
         .iter()
         .filter_map(|el| window_info(pid, app, el))
         .collect()
@@ -105,8 +121,7 @@ pub fn app_windows(pid: Pid, app: &AppIdentity) -> Vec<WindowInfo> {
 pub fn find_window(id: WindowId) -> Option<(Element, Element)> {
     let (pid, number) = split_window_id(id);
     let app = Element::application(pid);
-    let win = app
-        .elements(attr::WINDOWS)
+    let win = window_elements(&app)
         .into_iter()
         .find(|w| w.window_number() == Some(number))?;
     Some((app, win))

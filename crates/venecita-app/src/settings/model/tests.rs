@@ -456,3 +456,62 @@ fn resizing_past_the_opposite_edge_stops_at_one_cell() {
     };
     assert_eq!(zone_resized(z, top, (2, 3)), Zone::new(2, 2, 3, 1));
 }
+
+#[test]
+fn hotkeys_are_written_inline_in_one_table() {
+    let mut m = model(DEFAULT);
+    let keys = m.config().hotkeys.clone();
+    m.set_hotkeys(&keys).unwrap();
+    let out = m.to_toml_string();
+    assert!(
+        !out.contains("[hotkeys."),
+        "no per-shortcut sections:\n{out}"
+    );
+    assert!(
+        out.contains(r#""ctrl+alt+left" = { action = "move_zone", dir = "left" }"#),
+        "{out}"
+    );
+    assert!(out.contains(r#""ctrl+alt+s" = "snap_to_grid""#), "{out}");
+    assert_eq!(m.config().hotkeys, keys);
+}
+
+#[test]
+fn messy_hotkey_sections_are_tidied() {
+    // What an earlier version wrote: one section per shortcut, mixed with the rules.
+    let messy = r#"
+[[displays]]
+id = "laptop"
+match = { builtin = true }
+
+[[profiles]]
+name = "Casa"
+
+  [[profiles.layouts]]
+  name = "Solo"
+  displays = ["laptop"]
+
+[hotkeys."ctrl+alt+left"]
+action = "move_zone"
+dir = "left"
+
+[[profiles.layouts.rules]]
+apps = ["com.apple.Terminal"]
+zone = { display = "laptop", col = 0, row = 0, w = 4, h = 4 }
+
+[hotkeys]
+"ctrl+alt+s" = "snap_to_grid"
+"#;
+    let mut m = model(messy);
+    let keys = m.config().hotkeys.clone();
+    assert_eq!(keys.len(), 2);
+    m.set_hotkeys(&keys).unwrap();
+    let out = m.to_toml_string();
+    assert!(!out.contains("[hotkeys."), "{out}");
+    let reparsed = Config::from_toml_str(&out).unwrap();
+    assert_eq!(reparsed.hotkeys, keys);
+    assert_eq!(
+        reparsed.profiles[0].layouts[0].rules.len(),
+        1,
+        "rules untouched"
+    );
+}

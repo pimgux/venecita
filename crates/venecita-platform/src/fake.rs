@@ -128,8 +128,24 @@ impl FakePlatform {
 
     /// Simulates the user focusing a window (Cmd-Tab, click…).
     pub fn user_focus(&self, id: WindowId) {
-        self.lock().focused = Some(id);
+        // Like the macOS backend: a focused window is re-read and reported again first.
+        let info = {
+            let mut s = self.lock();
+            s.focused = Some(id);
+            s.windows.iter().find(|w| w.id == id).cloned()
+        };
+        if let Some(info) = info {
+            self.emit(PlatformEvent::WindowCreated(info));
+        }
         self.emit(PlatformEvent::WindowFocused { id });
+    }
+
+    /// Changes what kind of window `id` is without reporting it, like an app whose window
+    /// appears as a splash screen or a dialog and later becomes a standard window.
+    pub fn set_window_kind(&self, id: WindowId, kind: WindowKind) {
+        if let Some(w) = self.lock().windows.iter_mut().find(|w| w.id == id) {
+            w.kind = kind;
+        }
     }
 
     /// Simulates the user dragging a window.
@@ -415,19 +431,21 @@ mod tests {
         p.open_window(2, chrome(), "ignored", Rect::default());
 
         let events = events.lock().unwrap();
-        assert_eq!(events.len(), 6);
+        assert_eq!(events.len(), 7);
         assert!(matches!(events[0], PlatformEvent::WindowCreated(ref w) if w.id == id));
-        assert_eq!(events[1], PlatformEvent::WindowFocused { id });
+        // Focusing re-reports the window first, like the macOS backend.
+        assert!(matches!(events[1], PlatformEvent::WindowCreated(ref w) if w.id == id));
+        assert_eq!(events[2], PlatformEvent::WindowFocused { id });
         assert_eq!(
-            events[2],
+            events[3],
             PlatformEvent::WindowMoved {
                 id,
                 frame: Rect::new(5.0, 5.0, 10.0, 10.0)
             }
         );
-        assert_eq!(events[3], PlatformEvent::DisplaysChanged);
-        assert_eq!(events[4], PlatformEvent::WindowDestroyed { id });
-        assert_eq!(events[5], PlatformEvent::AppTerminated { pid: 1 });
+        assert_eq!(events[4], PlatformEvent::DisplaysChanged);
+        assert_eq!(events[5], PlatformEvent::WindowDestroyed { id });
+        assert_eq!(events[6], PlatformEvent::AppTerminated { pid: 1 });
     }
 
     #[test]

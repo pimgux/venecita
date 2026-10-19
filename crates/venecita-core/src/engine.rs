@@ -222,6 +222,29 @@ pub struct Engine {
     bars: BTreeMap<String, TabBar>,
     /// The last [`Command::Layering`] emitted (to emit only changes).
     layering: Option<Layering>,
+    /// Extra focus mode, while it is on.
+    focus_mode: Option<FocusMode>,
+    /// Windows focus mode resized. Their moves are not read as the user dragging them out
+    /// of their zone until they are back in it (the platform reports our own resizes, and
+    /// a report can arrive after the window was already restored).
+    focus_touched: HashSet<WindowId>,
+}
+
+/// State of the extra focus mode.
+#[derive(Debug, Clone, Default)]
+struct FocusMode {
+    /// The window currently enlarged, if the focused one could be.
+    enlarged: Option<Enlarged>,
+}
+
+/// A window enlarged by focus mode.
+#[derive(Debug, Clone, Copy)]
+struct Enlarged {
+    id: WindowId,
+    /// Where it goes back to when it loses the focus or the mode ends.
+    saved: Rect,
+    /// Its enlarged frame.
+    big: Rect,
 }
 
 impl Engine {
@@ -239,6 +262,8 @@ impl Engine {
             stacks: BTreeMap::new(),
             bars: BTreeMap::new(),
             layering: None,
+            focus_mode: None,
+            focus_touched: HashSet::new(),
         }
     }
 
@@ -271,6 +296,7 @@ impl Engine {
             Input::Platform(PlatformEvent::WindowFocused { .. }) | Input::Resync { .. }
         );
         let mut commands = self.handle_input(input);
+        self.keep_enlarged(&mut commands);
         commands.extend(self.sync_tab_bars());
         commands.extend(self.sync_layering(focus_event));
         commands
@@ -279,9 +305,14 @@ impl Engine {
     /// Emits [`Command::Layering`] if the desired stacking changed (or `force`).
     fn sync_layering(&mut self, force: bool) -> Option<Command> {
         let dim = &self.config.dim;
+        let opacity = if self.focus_mode.is_some() {
+            Some(self.config.focus.dim_opacity)
+        } else {
+            (dim.enabled && !self.paused).then_some(dim.opacity)
+        };
         let layering = Layering {
             focused: self.focused,
-            dim: (dim.enabled && !self.paused && self.focused.is_some()).then_some(dim.opacity),
+            dim: opacity.filter(|_| self.focused.is_some()),
         };
         if !force && self.layering.as_ref() == Some(&layering) {
             return None;
@@ -300,12 +331,15 @@ impl Engine {
                 self.displays = displays;
                 self.windows = windows.into_iter().map(|w| (w.id, w)).collect();
                 self.focused = focused;
+                let mut commands = self.exit_focus_mode();
                 self.refresh_layout();
-                self.relayout_all()
+                commands.extend(self.relayout_all());
+                commands
             }
             Input::Platform(event) => self.on_platform_event(event),
             Input::Action(action) => self.on_action(action),
             Input::ConfigChanged(config) => {
+                let mut commands = self.exit_focus_mode();
                 self.config = *config;
                 if let Some(name) = &self.manual_profile {
                     if self.config.profile(name).is_none() {
@@ -313,7 +347,8 @@ impl Engine {
                     }
                 }
                 self.refresh_layout();
-                self.relayout_all()
+                commands.extend(self.relayout_all());
+                commands
             }
         }
     }
@@ -322,10 +357,16 @@ impl Engine {
         match event {
             PlatformEvent::WindowCreated(info) => {
                 let id = info.id;
-                // The backend may report a window twice (e.g. when it starts observing an
-                // app that just launched). Only place it the first time.
-                let is_new = self.windows.insert(id, info).is_none();
-                if is_new {
+                let now_normal = info.kind == WindowKind::Normal;
+                // The backend reports a window again when it starts observing an app, and
+                // whenever the window gets the focus. Place it the first time, or when it
+                // just became a normal window (it appeared as a splash screen or a dialog,
+                // or was minimized); otherwise leave it where the user put it.
+                let place = match self.windows.insert(id, info) {
+                    None => true,
+                    Some(old) => now_normal && old.kind != WindowKind::Normal,
+                };
+                if place {
                     self.place_window(id)
                 } else {
                     Vec::new()
@@ -348,11 +389,23 @@ impl Engine {
                         stack.activate(id);
                     }
                 }
-                Vec::new()
+                self.follow_focus()
             }
             PlatformEvent::WindowMoved { id, frame } => {
                 if let Some(w) = self.windows.get_mut(&id) {
                     w.frame = frame;
+                }
+                if self.focus_touched.contains(&id) {
+                    let enlarged = self.enlarged().is_some_and(|e| e.id == id);
+                    let (cx, cy) = frame.center();
+                    let back_home = self
+                        .stack_of(id)
+                        .and_then(|key| self.key_rect(&key))
+                        .map_or(true, |r| r.contains_point(cx, cy));
+                    if enlarged || !back_home {
+                        return Vec::new();
+                    }
+                    self.focus_touched.remove(&id);
                 }
                 // Dragged out of its zone by hand: it leaves the stack.
                 let left_zone = self.stack_of(id).filter(|key| {
@@ -377,6 +430,23 @@ impl Engine {
     }
 
     fn on_action(&mut self, action: Action) -> Vec<Command> {
+        // Everything that arranges windows ends focus mode first, so it works on the
+        // windows' real places. Focus changes and stack cycling keep it on.
+        let keeps_focus_mode = matches!(
+            action,
+            Action::FocusModeToggle
+                | Action::StackNext
+                | Action::StackPrev
+                | Action::DynamicNext
+                | Action::DynamicPrev
+                | Action::FocusWindow { .. }
+                | Action::OpenSettings
+        );
+        if !keeps_focus_mode && self.focus_mode.is_some() {
+            let mut commands = self.exit_focus_mode();
+            commands.extend(self.on_action(action));
+            return commands;
+        }
         match action {
             Action::RelayoutAll => self.relayout_all(),
             Action::ActivateProfile { name } => match self.config.profile(&name) {
@@ -425,8 +495,7 @@ impl Engine {
             Action::DynamicNext => self.cycle_dynamic(true),
             Action::DynamicPrev => self.cycle_dynamic(false),
             Action::FocusWindow { id } => self.focus_window(id),
-            // Focus mode arrives in phase 6.
-            Action::FocusModeToggle => Vec::new(),
+            Action::FocusModeToggle => self.toggle_focus_mode(),
         }
     }
 
@@ -584,6 +653,12 @@ impl Engine {
         let mut changed = Vec::new();
         for &id in ids {
             self.windows.remove(&id);
+            self.focus_touched.remove(&id);
+            if let Some(mode) = &mut self.focus_mode {
+                if mode.enlarged.is_some_and(|e| e.id == id) {
+                    mode.enlarged = None;
+                }
+            }
             if self.focused == Some(id) {
                 self.focused = None;
             }
@@ -855,6 +930,109 @@ impl Engine {
         }
         let keys: Vec<ZoneKey> = self.stacks.keys().cloned().collect();
         keys.iter().flat_map(|k| self.place_stack(k)).collect()
+    }
+
+    // --- Extra focus mode (phase 6) -----------------------------------------------------
+
+    /// Whether extra focus mode is on.
+    pub fn focus_mode(&self) -> bool {
+        self.focus_mode.is_some()
+    }
+
+    fn enlarged(&self) -> Option<Enlarged> {
+        self.focus_mode.as_ref().and_then(|m| m.enlarged)
+    }
+
+    /// `focus_mode_toggle`.
+    fn toggle_focus_mode(&mut self) -> Vec<Command> {
+        if self.focus_mode.is_some() {
+            return self.exit_focus_mode();
+        }
+        if self.paused {
+            return Vec::new();
+        }
+        if self.focused_window().is_none() {
+            return vec![Command::Notice(Notice::NoFocusedWindow)];
+        }
+        self.focus_mode = Some(FocusMode::default());
+        self.enlarge_focused()
+    }
+
+    /// Ends focus mode, putting the enlarged window back.
+    fn exit_focus_mode(&mut self) -> Vec<Command> {
+        if self.focus_mode.is_none() {
+            return Vec::new();
+        }
+        let commands = self.restore_enlarged();
+        self.focus_mode = None;
+        commands
+    }
+
+    /// The focus moved while focus mode is on: the previous window goes back, the new one
+    /// is enlarged.
+    fn follow_focus(&mut self) -> Vec<Command> {
+        if self.focus_mode.is_none() || self.enlarged().map(|e| e.id) == self.focused {
+            return Vec::new();
+        }
+        let mut commands = self.restore_enlarged();
+        commands.extend(self.enlarge_focused());
+        commands
+    }
+
+    fn restore_enlarged(&mut self) -> Vec<Command> {
+        let Some(e) = self.focus_mode.as_mut().and_then(|m| m.enlarged.take()) else {
+            return Vec::new();
+        };
+        if let Some(w) = self.windows.get_mut(&e.id) {
+            w.frame = e.saved;
+            vec![Command::SetFrame(e.id, e.saved)]
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Enlarges the focused window to `focus.size` of its display's work area, centered.
+    /// Windows Venecita must not move (ignored apps, dialogs) stay as they are; the rest
+    /// of the screen is dimmed all the same.
+    fn enlarge_focused(&mut self) -> Vec<Command> {
+        let Some(w) = self.focused_window() else {
+            return Vec::new();
+        };
+        if any_app_matches(&self.config.general.ignore, &w.app) {
+            return Vec::new();
+        }
+        let Some(display) = self.display_of(&w.frame) else {
+            return Vec::new();
+        };
+        let big = display.work_area.centered_scaled(self.config.focus.size);
+        let e = Enlarged {
+            id: w.id,
+            saved: w.frame,
+            big,
+        };
+        if let Some(w) = self.windows.get_mut(&e.id) {
+            w.frame = big;
+        }
+        self.focus_touched.insert(e.id);
+        if let Some(mode) = &mut self.focus_mode {
+            mode.enlarged = Some(e);
+        }
+        vec![Command::SetFrame(e.id, big)]
+    }
+
+    /// Keeps the enlarged window enlarged when its stack is re-placed while focus mode is
+    /// on (e.g. another window joined its zone): the new place becomes where it returns to.
+    fn keep_enlarged(&mut self, commands: &mut Vec<Command>) {
+        let Some(e) = self.focus_mode.as_mut().and_then(|m| m.enlarged.as_mut()) else {
+            return;
+        };
+        commands.retain(|c| match c {
+            Command::SetFrame(id, rect) if *id == e.id && *rect != e.big => {
+                e.saved = *rect;
+                false
+            }
+            _ => true,
+        });
     }
 
     /// A snapshot for the tray menu, the API, etc.

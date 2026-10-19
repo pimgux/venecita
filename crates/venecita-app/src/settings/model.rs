@@ -244,13 +244,20 @@ impl SettingsModel {
         &mut self,
         hotkeys: &std::collections::BTreeMap<String, venecita_core::action::ActionSpec>,
     ) -> Result<(), String> {
-        #[derive(serde::Serialize)]
-        struct Wrap<'a> {
-            hotkeys: &'a std::collections::BTreeMap<String, venecita_core::action::ActionSpec>,
+        let mut entries = Vec::with_capacity(hotkeys.len());
+        for (key, spec) in hotkeys {
+            let value = toml::Value::try_from(spec).map_err(|e| e.to_string())?;
+            entries.push((key.as_str(), edit_value(&value)));
         }
-        let text = toml::to_string(&Wrap { hotkeys }).map_err(|e| e.to_string())?;
-        let parsed: DocumentMut = text.parse().map_err(|e| format!("{e}"))?;
-        self.doc["hotkeys"] = parsed["hotkeys"].clone();
+        // One `[hotkeys]` table with one line per shortcut, in place of the old one. Its
+        // entries are rebuilt, which also tidies files where they were written as separate
+        // `[hotkeys."ctrl+alt+…"]` sections.
+        let table = table_mut(&mut self.doc, "hotkeys");
+        table.clear();
+        table.set_implicit(false);
+        for (key, value) in entries {
+            table.insert(key, Item::Value(value));
+        }
         self.refresh();
         Ok(())
     }
@@ -701,6 +708,32 @@ fn matcher_value(m: &DisplayMatcher) -> Item {
         }
     }
     toml_edit::value(t)
+}
+
+/// A TOML value as a `toml_edit` value, with tables written inline
+/// (`{ action = "move_zone", dir = "left" }`).
+fn edit_value(value: &toml::Value) -> toml_edit::Value {
+    match value {
+        toml::Value::String(v) => v.as_str().into(),
+        toml::Value::Integer(v) => (*v).into(),
+        toml::Value::Float(v) => (*v).into(),
+        toml::Value::Boolean(v) => (*v).into(),
+        toml::Value::Datetime(v) => v.to_string().into(),
+        toml::Value::Array(items) => {
+            let mut array = toml_edit::Array::new();
+            for item in items {
+                array.push(edit_value(item));
+            }
+            array.into()
+        }
+        toml::Value::Table(table) => {
+            let mut inline = InlineTable::new();
+            for (k, v) in table {
+                inline.insert(k, edit_value(v));
+            }
+            inline.into()
+        }
+    }
 }
 
 fn table_mut<'a>(doc: &'a mut DocumentMut, name: &str) -> &'a mut Table {
