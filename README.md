@@ -1,57 +1,140 @@
-# Venecita Dock
+<p align="center">
+  <img src="docs/images/app-icon.png" width="110" alt="Venecita Dock icon">
+</p>
 
-> A keyboard-driven window manager that **remembers where every application belongs**.
-> macOS first, then Windows and Linux. Written in Rust. Licensed under GPL-3.0.
+<h1 align="center">Venecita Dock</h1>
 
-**Status: early development.** Runs on macOS and Windows 10/11. The Linux (X11) backend is
-ready (tested in CI); the Linux tray app comes later. See [the roadmap](#roadmap).
+<p align="center">
+  A keyboard-driven window manager that <b>remembers where every application belongs</b>.<br>
+  macOS and Windows 10/11 · Written in Rust · GPL-3.0
+</p>
+
+<p align="center">
+  <b>English</b> · <a href="README.es.md">Español</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/pimgux/venecita/releases/latest"><b>Download</b></a> ·
+  <a href="#installing">Install</a> ·
+  <a href="docs/CONFIG.md">Configuration</a> ·
+  <a href="docs/API.md">API and CLI</a>
+</p>
+
+---
 
 ## Why
 
-Tools like Rectangle let you snap windows quickly but forget the layout as soon as
-you close an app. Venecita Dock lets you divide every monitor into a grid
-(8 × 4 by default) and assign each application, by its executable or bundle id,
-to a rectangle of cells. Each time that app opens, its window goes back to the
-same place.
+Tools like Rectangle snap windows quickly, but they forget the layout as soon as you close
+an app. Venecita Dock divides every monitor into a grid and gives each application its own
+rectangle of cells. Each time that app opens, its window goes back to the same place.
 
-## Features (planned for 1.0)
+![How it works: divide every display into a grid, assign each app to a rectangle, and it reopens right where it belongs](docs/images/how-it-works-en.svg)
 
-- **Per-application placement** on a configurable grid (default 8 × 4 per monitor).
-- **Profiles** for each desk setup (e.g. *home*: 43" 4K + laptop, *work*: 2 × 27" + laptop),
-  detected automatically from the connected monitors. Each profile can have layouts for
-  "laptop open" and "laptop closed".
-- **Dynamic zone**: windows without a rule are stacked in one zone that has a tab bar.
-- **Stacks**: windows that share a zone (for example, 3 Chrome windows) are stacked; you can switch between them with tabs or a hotkey.
-- **Extra focus mode**: the active window grows to about 80 % of the screen and everything else is dimmed.
-- **Everything has a keyboard shortcut**, and you can rebind all of them.
-- **Local API** (HTTP + WebSocket, protected by a token) and a `venecita` CLI, for
-  integration with stream decks, macro pads and scripts.
-- Menu-bar or tray icon, launch at login, gaps between windows, and a list of ignored apps.
+## One profile per desk, one layout per screen setup
 
-## Local API and CLI
+A **profile** is a desk (home, work, travelling). Each profile has **layouts** for the
+screens you use there, such as "laptop open" and "laptop closed". Venecita Dock detects which
+displays are connected and switches layout on its own. You don't have to do anything when
+you close the lid.
 
-Stream decks, macro pads and scripts can control Venecita Dock through a local, token-protected
-API, or with the `venecita` command (`venecita action relayout-all`, `venecita profile activate
-Casa`…). See [`docs/API.md`](docs/API.md).
+![The same profile with the laptop open and closed: the apps rearrange on the remaining monitor](docs/images/profiles-en.svg)
 
-## Configuration
+In the settings window you can duplicate a layout, copy it to another profile, or copy its
+rules to another layout. Rules on a display that the target layout doesn't use are skipped.
 
-Settings are stored in a human-readable TOML file (see [`examples/config.toml`](examples/config.toml)
-and [`docs/CONFIG.md`](docs/CONFIG.md)). You can change it from the settings window or edit it by hand.
-Venecita reloads it as soon as you save.
+## Tabs and the dynamic zone
+
+When several windows share a zone (three Chrome windows, for example), they are stacked and
+a **tab bar** appears on top of them. Click a tab or use a shortcut to switch.
+
+Apps **without a rule** go to the **dynamic zone**, which also has tabs, so new apps never end
+up scattered across the screen.
+
+![Left: three Chrome windows in one zone with tabs. Right: apps without a rule stacked in the dynamic zone](docs/images/tabs-en.svg)
+
+## Focus mode
+
+Press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>F</kbd>. The active window grows to about 80 % of the
+screen and everything else is dimmed. Press it again to go back.
+
+![Focus mode: the active window is enlarged and the rest are dimmed](docs/images/focus-en.svg)
+
+## Everything from the keyboard
+
+Every action has a shortcut, and you can change all of them from the settings window.
+
+| Shortcut | Action |
+|---|---|
+| <kbd>⌃</kbd><kbd>⌥</kbd> + arrows | Move the window to the next zone |
+| <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⇧</kbd> + arrows | Grow the window |
+| <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> + arrows | Shrink the window |
+| <kbd>⌃</kbd><kbd>⌥</kbd><kbd>N</kbd> / <kbd>B</kbd> | Move to the next / previous display |
+| <kbd>⌃</kbd><kbd>⌥</kbd><kbd>P</kbd> | Remember this app here (creates the rule) |
+| <kbd>⌃</kbd><kbd>⌥</kbd><kbd>R</kbd> | Arrange every window |
+| <kbd>⌃</kbd><kbd>⌥</kbd><kbd>F</kbd> | Focus mode |
+| <kbd>⌃</kbd><kbd>⌥</kbd><kbd>]</kbd> / <kbd>[</kbd> | Next / previous tab |
+| <kbd>⌃</kbd><kbd>⌥</kbd><kbd>0</kbd> | Next profile |
+
+On Windows, <kbd>⌃</kbd> is Ctrl, <kbd>⌥</kbd> is Alt and <kbd>⌘</kbd> is the Windows key.
+
+## Stream decks, macro pads and scripts
+
+A local API (HTTP + WebSocket, protected by a token) and the `venecita` command let other
+tools control Venecita Dock: arrange the windows, switch profile, toggle focus mode, or
+listen for changes. See [`docs/API.md`](docs/API.md).
+
+![A stream deck sends actions to Venecita Dock through the local API or the venecita command](docs/images/api-en.svg)
+
+```sh
+venecita action relayout-all
+venecita profile activate Home
+```
+
+## Features
+
+- **Per-application placement** on a grid you choose (8 × 4 per monitor by default; each
+  monitor can have its own).
+- **Profiles and layouts** detected from the connected monitors.
+- **Tabs** for windows that share a zone, and a **dynamic zone** for apps without a rule.
+- **Focus mode**, and a dim layer that makes the focused window stand out.
+- **Arrange automatically**: if you move a window by hand, it goes back to its zone.
+- **Settings window** in English and Spanish, with a visual layout editor: drag on the grid
+  to create a zone, then move or resize it with the mouse.
+- **Local API and CLI**, menu-bar or tray icon, launch at login, gaps between windows, and a
+  list of ignored apps.
 
 ## Installing
 
-Download the latest version from the [Releases](https://github.com/pimgux/venecita/releases):
+Download the latest version from [Releases](https://github.com/pimgux/venecita/releases/latest):
 
 - **macOS** (11 or later, Intel or Apple Silicon): open `venecita-dock-…-macos.dmg` and drag
   **Venecita Dock** to Applications. On first start, grant the **Accessibility** permission
-  (System Settings → Privacy & Security → Accessibility). Until releases are signed with a
-  Developer ID, macOS may say it can't check the app: right-click it → *Open* the first time,
-  and grant the permission again after updating.
+  (System Settings → Privacy & Security → Accessibility). The app isn't signed with a
+  Developer ID yet, so macOS may say it can't check it: right-click it → *Open* the first
+  time, and grant the permission again after updating.
 - **Windows** (10 or 11): run `venecita-dock-…-windows-x86_64.msi`. It installs for your user
   only (no administrator rights), adds Venecita Dock to the Start menu and puts the `venecita`
   command on your PATH. A zip with the plain `.exe` files is there too.
+
+Each download has a `.sha256` file to check it.
+
+### Windows notes
+
+- The executable isn't signed yet, so SmartScreen may warn you the first time: choose
+  *More info → Run anyway*.
+- The configuration is `%APPDATA%\venecita-dock\config.toml` and the logs are in
+  `%LOCALAPPDATA%\venecita-dock\logs\`.
+- Apps are identified by their executable name, e.g. `apps = ["code.exe", "firefox.exe"]`
+  (the `.exe` is optional), or by their product name (`"Visual Studio Code"`).
+- Windows of apps running as administrator can't be moved by a normal app (Windows doesn't
+  allow it). Run Venecita Dock as administrator too if you need that.
+- Many <kbd>Win</kbd> + key combinations are reserved by Windows itself.
+
+## Configuration
+
+Settings are stored in a readable TOML file (see [`examples/config.toml`](examples/config.toml)
+and [`docs/CONFIG.md`](docs/CONFIG.md)). Change it from the settings window or edit it by
+hand: Venecita Dock reloads it as soon as you save, and keeps your comments.
 
 ## Building
 
@@ -59,71 +142,39 @@ Download the latest version from the [Releases](https://github.com/pimgux/veneci
 # Requires Rust (https://rustup.rs)
 cargo build --release
 cargo test --workspace
-```
 
-Run the menu-bar app (it creates `~/Library/Application Support/venecita-dock/config.toml`
-on first start):
-
-```sh
+# Run the menu-bar app
 cargo run --release -p venecita-app --bin venecita-dock
 ```
 
-On macOS, Venecita Dock needs the **Accessibility** permission
-(System Settings → Privacy & Security → Accessibility).
-
 Packages: `scripts/bundle-macos.sh` builds `dist/Venecita Dock.app` and a DMG
-(`UNIVERSAL=1` for Intel + Apple Silicon); `wix/venecita.wxs` is the Windows installer
-(WiX 5). Pushing a tag `v*` builds and publishes both.
+(`UNIVERSAL=1` for Intel + Apple Silicon). `wix/venecita.wxs` is the Windows installer
+(WiX 5). Pushing a tag `v*` builds and publishes both. The images in this README are made by
+`scripts/readme-images.py`.
 
-## Windows
+## Status and roadmap
 
-Install it with the MSI from the [Releases](https://github.com/pimgux/venecita/releases)
-(or unzip the zip anywhere and run `venecita-dock.exe`). It lives in the notification area
-(next to the clock).
+Version **0.1.1** runs on macOS and Windows 10/11. The Linux (X11) backend is ready and
+tested in CI; the Linux tray app comes later.
 
-- The executable is not signed yet, so SmartScreen may warn the first time:
-  choose *More info → Run anyway*.
-- The configuration is `%APPDATA%\venecita-dock\config.toml` and the logs are in
-  `%LOCALAPPDATA%\venecita-dock\logs\`.
-- Apps are identified by their executable name, e.g. `apps = ["code.exe", "firefox.exe"]`
-  (the `.exe` is optional) or by their product name (`"Visual Studio Code"`).
-- Positions and sizes are in physical pixels, so gaps are exact on monitors with different
-  scaling.
-- Windows of apps running as administrator can't be moved by a normal app (Windows
-  forbids it); run Venecita Dock as administrator too if you need that.
-- `cmd` in shortcuts is the Windows key; many `Win+…` combinations are reserved by
-  Windows itself.
+| Phase | Scope | |
+|---|---|---|
+| 0–1 | Repository, CI, core logic and configuration | ✅ |
+| 2–3 | macOS backend, automatic placement and profiles | ✅ |
+| 4–5 | Shortcuts, stacks, dynamic zone and tab bar | ✅ |
+| 6 | Focus mode | ✅ |
+| 7 | Settings window (egui) in English and Spanish | ✅ |
+| 8 | Local API and CLI | ✅ |
+| 9 | Windows backend | ✅ |
+| 10 | Packaging (DMG, MSI) and Linux backend | ✅ / tray app pending |
 
-## Roadmap
-
-| Phase | Scope |
-|---|---|
-| 0 | Repository bootstrap, CI |
-| 1 | Core domain and configuration (OS-independent) |
-| 2 | macOS backend |
-| 3 | Daemon MVP: automatic placement and profiles |
-| 4 | Hotkeys and actions |
-| 5 | Stacks, dynamic zone and tab bar |
-| 6 | Extra focus mode |
-| 7 | Settings GUI (egui) and i18n (EN/ES) |
-| 8 | Local API and CLI |
-| 9 | Windows backend |
-| 10 | Packaging and Linux backend |
-
-Detailed specifications live in [`docs/specs/`](docs/specs/). Architecture overview:
+Specifications live in [`docs/specs/`](docs/specs/), and the architecture overview in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
-
-## Resumen en español
-
-Venecita Dock es un gestor de ventanas que **recuerda dónde va cada aplicación**.
-Divide cada monitor en una grilla (8 × 4 por defecto) y asigna cada aplicación
-(por ejecutable o bundle id) a un rectángulo de celdas. También tiene perfiles para casa y trabajo,
-una zona dinámica con pestañas, un modo de foco, atajos de teclado configurables y una
-API local con token. Funciona primero en macOS; después llegan Windows y Linux.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Contributions are welcome. Please keep the code clear and well commented.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Contributions are welcome; please keep the code clear
+and well commented.
 
 ## License
 
