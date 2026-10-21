@@ -75,6 +75,55 @@ pub fn icon_rgba(kind: IconKind, size: u32) -> Vec<u8> {
     out
 }
 
+/// The application icon (Finder, Dock, Explorer…) as `size × size` RGBA, following the
+/// macOS icon grid: a rounded square with an indigo-to-blue gradient, inset from the canvas,
+/// with a white monitor whose screen is split into zones, as in the menu-bar icon.
+pub fn app_icon_rgba(size: u32) -> Vec<u8> {
+    let n = size as f32;
+    let px = 1.0 / n;
+    // macOS: an 824 px body on a 1024 px canvas, corner radius 185 px.
+    let body = |p: (f32, f32)| sd_round_rect(p, (0.5, 0.5), (0.4023, 0.4023), 0.181);
+    let top = [94.0, 92.0, 230.0]; // indigo
+    let bottom = [10.0, 132.0, 255.0]; // blue
+    let glyph = |p: (f32, f32)| {
+        // The screen: an outline, and three zones inside (left half split in two).
+        let screen = sd_round_rect(p, (0.5, 0.45), (0.255, 0.175), 0.035);
+        let inner = sd_round_rect(p, (0.5, 0.45), (0.215, 0.135), 0.012);
+        let outline = screen.max(-inner);
+        let zones = [
+            ((0.395, 0.385), (0.095, 0.055)),
+            ((0.395, 0.515), (0.095, 0.055)),
+            ((0.605, 0.45), (0.095, 0.12)),
+        ]
+        .into_iter()
+        .map(|(c, h)| sd_round_rect(p, c, h, 0.018))
+        .fold(f32::MAX, f32::min);
+        let neck = sd_round_rect(p, (0.5, 0.665), (0.035, 0.04), 0.004);
+        let foot = sd_round_rect(p, (0.5, 0.715), (0.13, 0.022), 0.018);
+        outline.min(zones).min(neck).min(foot)
+    };
+    let mut out = vec![0u8; (size * size * 4) as usize];
+    for y in 0..size {
+        for x in 0..size {
+            let p = ((x as f32 + 0.5) / n, (y as f32 + 0.5) / n);
+            let a = coverage(body(p), px);
+            if a == 0.0 {
+                continue;
+            }
+            // Vertical gradient over the body.
+            let t = ((p.1 - 0.1) / 0.8).clamp(0.0, 1.0);
+            let bg: Vec<f32> = (0..3).map(|i| top[i] + (bottom[i] - top[i]) * t).collect();
+            let g = coverage(glyph(p), px);
+            let i = ((y * size + x) * 4) as usize;
+            for c in 0..3 {
+                out[i + c] = (bg[c] * (1.0 - g) + 255.0 * g).round() as u8;
+            }
+            out[i + 3] = (a * 255.0).round() as u8;
+        }
+    }
+    out
+}
+
 /// Pixel coverage from a signed distance (in unit coordinates), with 1 px of smoothing.
 fn coverage(distance: f32, px: f32) -> f32 {
     (0.5 - distance / px).clamp(0.0, 1.0)
@@ -221,6 +270,24 @@ mod tests {
                 "{kind:?}: tile edge"
             );
         }
+    }
+
+    #[test]
+    fn the_app_icon_follows_the_macos_grid() {
+        let size = 256;
+        let icon = app_icon_rgba(size);
+        assert_eq!(pixel(&icon, size, 0, 0)[3], 0, "transparent margin");
+        assert_eq!(
+            pixel(&icon, size, size / 2, 10)[3],
+            0,
+            "inset from the canvas"
+        );
+        assert_eq!(pixel(&icon, size, size / 2, 40)[3], 255, "the body");
+        let white = icon
+            .chunks(4)
+            .filter(|p| p[3] == 255 && p[..3] == [255, 255, 255])
+            .count();
+        assert!(white > 1000, "a white glyph ({white} px)");
     }
 
     #[test]

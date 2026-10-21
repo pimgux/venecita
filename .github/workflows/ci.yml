@@ -2,8 +2,9 @@
 #
 # 1. Formato del código: que todo esté formateado con rustfmt.
 # 2. Pruebas en macOS, Windows y Linux: advertencias (clippy) y pruebas.
-# 3. Ejecutable de Windows: compila el .exe y lo deja para descargar (en la página de la
-#    ejecución, sección "Artifacts"), para probarlo antes de publicar una versión.
+# 3. Paquetes para probar, antes de publicar una versión: el .exe y el instalador MSI de
+#    Windows, y el DMG de macOS. Quedan para descargar en la página de la ejecución
+#    (sección "Artifacts").
 name: Verificación
 
 on:
@@ -61,8 +62,8 @@ jobs:
           VENECITA_DESKTOP_TESTS: "1"
         run: cargo test -p venecita-platform --test windows_desktop
 
-  ejecutable-windows:
-    name: Ejecutable de Windows (para probar)
+  paquete-windows:
+    name: Paquete de Windows (para probar)
     runs-on: windows-latest
     needs: pruebas
     steps:
@@ -74,15 +75,41 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Compilar venecita-dock.exe y venecita.exe (release)
         run: cargo build --release -p venecita-app --bin venecita-dock -p venecita-cli --bin venecita
-      - name: Armar la carpeta con los archivos
+      - name: Instalar WiX 5 (para el instalador)
         shell: pwsh
         run: |
+          dotnet tool install --global wix --version 5.0.2
+          "$env:USERPROFILE\.dotnet\tools" >> $env:GITHUB_PATH
+      - name: Armar la carpeta y el instalador (MSI)
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"').Matches[0].Groups[1].Value
           New-Item -ItemType Directory dist | Out-Null
           Copy-Item target/release/venecita-dock.exe, target/release/venecita.exe dist/
           Copy-Item README.md, LICENSE, docs/API.md dist/
           Copy-Item examples/config.toml dist/config.example.toml
-      - name: Dejar el ejecutable para descargar
+          wix build wix/venecita.wxs -d Version=$version -d BinDir=target/release -o dist/venecita-dock.msi
+      - name: Dejar los archivos para descargar
         uses: actions/upload-artifact@v4
         with:
           name: venecita-dock-windows-x86_64
           path: dist/
+
+  paquete-macos:
+    name: App de macOS (para probar)
+    runs-on: macos-latest
+    needs: pruebas
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+      - name: Instalar Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Reutilizar la compilación anterior (caché)
+        uses: Swatinem/rust-cache@v2
+      - name: Armar la app y el DMG
+        run: scripts/bundle-macos.sh
+      - name: Dejar el DMG para descargar
+        uses: actions/upload-artifact@v4
+        with:
+          name: venecita-dock-macos
+          path: dist/*.dmg

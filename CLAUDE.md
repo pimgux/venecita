@@ -57,5 +57,9 @@ or why it went to the dynamic zone. To confirm, look at:
 - the latest log in `%LOCALAPPDATA%\venecita-dock\logs\` (`active layout profile=… layout=…`
   and, with alpha.2, one line per window explaining its placement).
 
-Next, after that bug: phase 10 (packaging: macOS .app, Windows
-MSI), creating new shortcuts in Settings, the new tab-bar look on Windows.
+Packaging (phase 10, first half): `scripts/bundle-macos.sh` (universal .app + DMG, ad-hoc
+signed unless `MACOS_SIGN_IDENTITY`), `wix/venecita.wxs` (per-user MSI, WiX 5), app icon from
+`icons::app_icon_rgba` (`cargo run -p venecita-app --example app-icons`).
+
+Next, after that bug: creating new shortcuts in Settings, the new tab-bar look on Windows,
+the Linux (X11) backend.

@@ -1,6 +1,11 @@
-# Publicar versión: al subir un tag como v0.1.0, corre las pruebas, compila los
-# ejecutables y publica una versión en GitHub (página "Releases") con el zip y su
-# checksum SHA-256. Los tags con guion (v0.1.0-alpha.1) se publican como pre-release.
+# Publicar versión: al subir un tag como v0.1.0, corre las pruebas, arma los paquetes y
+# publica una versión en GitHub (página "Releases"):
+#
+#   • Windows: zip con los .exe e instalador MSI (por usuario, sin administrador).
+#   • macOS:   DMG con "Venecita Dock.app" (universal: Intel y Apple Silicon).
+#   • Un .sha256 por archivo, para verificar la descarga.
+#
+# Los tags con guion (v0.1.0-alpha.1) se publican como pre-release.
 name: Publicar versión
 
 on:
@@ -15,7 +20,7 @@ env:
 
 jobs:
   windows:
-    name: Versión para Windows
+    name: Windows (zip e instalador)
     runs-on: windows-latest
     steps:
       - name: Descargar el código
@@ -26,24 +31,72 @@ jobs:
         run: cargo test --workspace
       - name: Compilar venecita-dock.exe y venecita.exe (release)
         run: cargo build --release -p venecita-app --bin venecita-dock -p venecita-cli --bin venecita
-      - name: Armar el zip y su checksum
-        id: zip
+      - name: Instalar WiX 5 (para el instalador)
         shell: pwsh
         run: |
-          $name = "venecita-dock-${{ github.ref_name }}-windows-x86_64"
-          New-Item -ItemType Directory $name | Out-Null
+          dotnet tool install --global wix --version 5.0.2
+          "$env:USERPROFILE\.dotnet\tools" >> $env:GITHUB_PATH
+      - name: Armar el zip y el instalador (MSI)
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"').Matches[0].Groups[1].Value
+          $name = "venecita-dock-$tag-windows-x86_64"
+          New-Item -ItemType Directory paquetes, $name | Out-Null
           Copy-Item target/release/venecita-dock.exe, target/release/venecita.exe $name/
           Copy-Item README.md, LICENSE, docs/API.md $name/
           Copy-Item examples/config.toml "$name/config.example.toml"
-          Compress-Archive -Path $name -DestinationPath "$name.zip"
-          $hash = (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower()
-          "$hash  $name.zip" | Out-File -Encoding ascii "$name.zip.sha256"
-          "archivo=$name.zip" >> $env:GITHUB_OUTPUT
-      - name: Publicar la versión en GitHub
+          Compress-Archive -Path $name -DestinationPath "paquetes/$name.zip"
+          wix build wix/venecita.wxs -d Version=$version -d BinDir=target/release -o "paquetes/$name.msi"
+      - name: Guardar los paquetes de Windows
+        uses: actions/upload-artifact@v4
+        with:
+          name: paquetes-windows
+          path: paquetes/
+
+  macos:
+    name: macOS (app y DMG)
+    runs-on: macos-latest
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+      - name: Instalar Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Correr las pruebas (cargo test)
+        run: cargo test --workspace
+      - name: Armar la app universal y el DMG
+        env:
+          UNIVERSAL: "1"
+        run: scripts/bundle-macos.sh
+      - name: Ponerle la versión al nombre del DMG
+        run: |
+          mkdir -p paquetes
+          mv dist/Venecita-Dock-*-macos.dmg "paquetes/venecita-dock-${{ github.ref_name }}-macos.dmg"
+      - name: Guardar el paquete de macOS
+        uses: actions/upload-artifact@v4
+        with:
+          name: paquetes-macos
+          path: paquetes/
+
+  publicar:
+    name: Publicar la versión en GitHub
+    runs-on: ubuntu-latest
+    needs: [windows, macos]
+    steps:
+      - name: Juntar los paquetes
+        uses: actions/download-artifact@v4
+        with:
+          pattern: paquetes-*
+          path: paquetes
+          merge-multiple: true
+      - name: Calcular los checksums (SHA-256)
+        run: |
+          cd paquetes
+          for f in *; do sha256sum "$f" > "$f.sha256"; done
+          ls -la
+      - name: Publicar la versión
         uses: softprops/action-gh-release@v2
         with:
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
-          files: |
-            ${{ steps.zip.outputs.archivo }}
-            ${{ steps.zip.outputs.archivo }}.sha256
+          files: paquetes/*

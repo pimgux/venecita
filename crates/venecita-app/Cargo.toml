@@ -64,5 +64,12 @@ windows-sys = { version = "0.61", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 
+[dev-dependencies]
+png = "0.18"
+
 [build-dependencies]
 embed-manifest = "1.4"
+
+# The Windows icon needs the resource compiler: only when building on Windows.
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"

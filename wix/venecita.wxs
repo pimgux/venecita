@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Windows installer for Venecita Dock, built with the WiX Toolset 5 dotnet tool ("wix build"
+  with the Version and BinDir variables; see the release workflow for the exact command).
+
+  Installs for the current user only (no administrator rights) into
+  %LOCALAPPDATA%\Programs\Venecita Dock, adds a Start menu shortcut and puts the folder on
+  the user's PATH so `venecita` works in a terminal. The UpgradeCode never changes: a newer
+  MSI replaces an older one.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Venecita Dock"
+           Manufacturer="Venecita Dock contributors"
+           Version="$(Version)"
+           UpgradeCode="930C4566-00A7-4418-86B1-0E5CE90F0F37"
+           Scope="perUser"
+           Language="1033">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Venecita Dock is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon.ico" SourceFile="crates/venecita-app/assets/icons/AppIcon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/pimgux/venecita" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="Venecita Dock">
+          <!-- Per-user components use a registry value as their key path. -->
+          <Component Id="Binaries" Guid="*">
+            <RegistryValue Root="HKCU" Key="Software\Venecita Dock" Name="installed"
+                           Type="integer" Value="1" KeyPath="yes" />
+            <File Id="VenecitaDockExe" Source="$(BinDir)/venecita-dock.exe" />
+            <File Id="VenecitaExe" Source="$(BinDir)/venecita.exe" />
+            <File Id="ExampleConfig" Source="examples/config.toml" Name="config.example.toml" />
+            <File Id="ApiDoc" Source="docs/API.md" Name="API.md" />
+            <File Id="License" Source="LICENSE" Name="LICENSE.txt" />
+            <Environment Id="UserPath" Name="PATH" Value="[INSTALLFOLDER]"
+                         Part="last" Action="set" System="no" Permanent="no" />
+            <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+            <RemoveFolder Id="RemoveProgramsFolder" Directory="ProgramsFolder" On="uninstall" />
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut" Guid="*">
+        <Shortcut Id="StartMenuShortcut" Name="Venecita Dock"
+                  Description="Remembers where every application belongs"
+                  Target="[INSTALLFOLDER]venecita-dock.exe" WorkingDirectory="INSTALLFOLDER"
+                  Icon="AppIcon.ico" />
+        <RegistryValue Root="HKCU" Key="Software\Venecita Dock" Name="shortcut"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="Venecita Dock">
+      <ComponentRef Id="Binaries" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+  </Package>
+</Wix>

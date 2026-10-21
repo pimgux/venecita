@@ -39,6 +39,19 @@ Settings are stored in a human-readable TOML file (see [`examples/config.toml`](
 and [`docs/CONFIG.md`](docs/CONFIG.md)). You can change it from the settings window or edit it by hand.
 Venecita reloads it as soon as you save.
 
+## Installing
+
+Download the latest version from the [Releases](https://github.com/pimgux/venecita/releases):
+
+- **macOS** (11 or later, Intel or Apple Silicon): open `venecita-dock-…-macos.dmg` and drag
+  **Venecita Dock** to Applications. On first start, grant the **Accessibility** permission
+  (System Settings → Privacy & Security → Accessibility). Until releases are signed with a
+  Developer ID, macOS may say it can't check the app: right-click it → *Open* the first time,
+  and grant the permission again after updating.
+- **Windows** (10 or 11): run `venecita-dock-…-windows-x86_64.msi`. It installs for your user
+  only (no administrator rights), adds Venecita Dock to the Start menu and puts the `venecita`
+  command on your PATH. A zip with the plain `.exe` files is there too.
+
 ## Building
 
 ```sh
@@ -57,11 +70,15 @@ cargo run --release -p venecita-app --bin venecita-dock
 On macOS, Venecita Dock needs the **Accessibility** permission
 (System Settings → Privacy & Security → Accessibility).
 
+Packages: `scripts/bundle-macos.sh` builds `dist/Venecita Dock.app` and a DMG
+(`UNIVERSAL=1` for Intel + Apple Silicon); `wix/venecita.wxs` is the Windows installer
+(WiX 5). Pushing a tag `v*` builds and publishes both.
+
 ## Windows
 
-Download `venecita-dock-…-windows-x86_64.zip` from the
-[Releases](https://github.com/pimgux/venecita/releases), unzip it anywhere and run
-`venecita-dock.exe`. It lives in the notification area (next to the clock).
+Install it with the MSI from the [Releases](https://github.com/pimgux/venecita/releases)
+(or unzip the zip anywhere and run `venecita-dock.exe`). It lives in the notification area
+(next to the clock).
 
 - The executable is not signed yet, so SmartScreen may warn the first time:
   choose *More info → Run anyway*.
