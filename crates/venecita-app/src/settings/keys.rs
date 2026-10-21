@@ -125,6 +125,93 @@ pub fn action_text(i18n: &I18n, action: &Action) -> (String, String) {
     )
 }
 
+/// The parameter an action takes, for building a new shortcut.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Param {
+    /// No parameter.
+    None,
+    /// A direction (`move_zone`, `grow`, `shrink`).
+    Direction,
+    /// Next or previous display (`move_to_display`).
+    Display,
+    /// A profile name (`activate_profile`).
+    Profile,
+}
+
+/// Every action a shortcut can run (all but `focus_window`, which needs a window), with a
+/// default parameter, in the order the "New shortcut" picker shows them.
+pub fn action_catalog() -> Vec<Action> {
+    use venecita_core::action::DisplayTarget;
+    use venecita_core::Direction;
+    vec![
+        Action::MoveZone {
+            dir: Direction::Left,
+        },
+        Action::Grow {
+            dir: Direction::Right,
+        },
+        Action::Shrink {
+            dir: Direction::Left,
+        },
+        Action::MoveToDisplay {
+            target: DisplayTarget::Next,
+        },
+        Action::SnapToGrid,
+        Action::PinHere,
+        Action::StackNext,
+        Action::StackPrev,
+        Action::DynamicNext,
+        Action::DynamicPrev,
+        Action::FocusModeToggle,
+        Action::RelayoutAll,
+        Action::ActivateProfile {
+            name: String::new(),
+        },
+        Action::NextProfile,
+        Action::AutoProfile,
+        Action::TogglePause,
+        Action::OpenSettings,
+    ]
+}
+
+/// What parameter `action` takes.
+pub fn param_of(action: &Action) -> Param {
+    match action {
+        Action::MoveZone { .. } | Action::Grow { .. } | Action::Shrink { .. } => Param::Direction,
+        Action::MoveToDisplay { .. } => Param::Display,
+        Action::ActivateProfile { .. } => Param::Profile,
+        _ => Param::None,
+    }
+}
+
+/// Adds a shortcut, refusing keys that don't parse or are already used (also when written
+/// differently, like `option+ctrl+f` for `ctrl+alt+f`). Returns the canonical key.
+pub fn add_hotkey(
+    hotkeys: &mut BTreeMap<String, ActionSpec>,
+    key: &str,
+    action: Action,
+) -> Result<String, AddError> {
+    let hotkey: Hotkey = key.parse().map_err(|_| AddError::Invalid)?;
+    if hotkeys
+        .keys()
+        .any(|k| k.parse::<Hotkey>().ok().as_ref() == Some(&hotkey))
+    {
+        return Err(AddError::Taken);
+    }
+    let key = hotkey.to_string();
+    hotkeys.insert(key.clone(), ActionSpec(action));
+    Ok(key)
+}
+
+/// Why a shortcut could not be added.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AddError {
+    /// Not a valid shortcut.
+    Invalid,
+    /// Another action already uses it.
+    Taken,
+}
+
 /// The config name of an action (`move_zone`, `pin_here`…).
 pub fn action_id(action: &Action) -> String {
     match toml::Value::try_from(action) {
@@ -263,6 +350,36 @@ mod tests {
             name: "Casa".into(),
         };
         assert_eq!(action_text(&en, &profile).0, "Profile “Casa”");
+    }
+
+    #[test]
+    fn the_catalog_covers_every_action_but_focus_window() {
+        let catalog = action_catalog();
+        let ids: BTreeSet<String> = catalog.iter().map(action_id).collect();
+        assert_eq!(ids.len(), catalog.len(), "no duplicates");
+        for spec in default_hotkeys().values() {
+            assert!(ids.contains(&action_id(&spec.0)), "{:?} is missing", spec.0);
+        }
+        assert!(!ids.contains("focus_window"));
+        assert_eq!(param_of(&catalog[0]), Param::Direction);
+        assert_eq!(param_of(&Action::RelayoutAll), Param::None);
+    }
+
+    #[test]
+    fn adding_hotkeys_refuses_duplicates_and_bad_keys() {
+        let mut map = default_hotkeys();
+        // Already used, written another way.
+        assert_eq!(
+            add_hotkey(&mut map, "option+ctrl+f", Action::RelayoutAll),
+            Err(AddError::Taken)
+        );
+        assert_eq!(
+            add_hotkey(&mut map, "ctrl+banana", Action::RelayoutAll),
+            Err(AddError::Invalid)
+        );
+        let key = add_hotkey(&mut map, "shift+alt+ctrl+k", Action::PinHere).unwrap();
+        assert_eq!(key, "ctrl+alt+shift+k", "stored in canonical form");
+        assert_eq!(map[&key].0, Action::PinHere);
     }
 
     #[test]
