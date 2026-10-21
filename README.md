@@ -27,6 +27,12 @@ same place.
   integration with stream decks, macro pads and scripts.
 - Menu-bar or tray icon, launch at login, gaps between windows, and a list of ignored apps.
 
+## Local API and CLI
+
+Stream decks, macro pads and scripts can control Venecita Dock through a local, token-protected
+API, or with the `venecita` command (`venecita action relayout-all`, `venecita profile activate
+Casa`…). See [`docs/API.md`](docs/API.md).
+
 ## Configuration
 
 Settings are stored in a human-readable TOML file (see [`examples/config.toml`](examples/config.toml)

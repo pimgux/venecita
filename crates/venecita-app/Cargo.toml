@@ -23,18 +23,18 @@ path = "src/main.rs"
 [dependencies]
 venecita-core.workspace = true
 venecita-platform.workspace = true
+venecita-api = { workspace = true, features = ["server"] }
+serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 notify = "8"
 notify-debouncer-mini = "0.7"
-dirs = "6"
 serde.workspace = true
 toml.workspace = true
 toml_edit.workspace = true
 fluent.workspace = true
 unic-langid.workspace = true
-getrandom = "0.4"
 global-hotkey = "0.9"
 
 # The tray app and the settings window (macOS and Windows).

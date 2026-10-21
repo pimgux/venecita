@@ -48,13 +48,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release -p venecita-app --bin venecita-dock
+      - run: cargo build --release -p venecita-app --bin venecita-dock -p venecita-cli --bin venecita
       - name: Package
         shell: pwsh
         run: |
           New-Item -ItemType Directory dist | Out-Null
-          Copy-Item target/release/venecita-dock.exe dist/
-          Copy-Item README.md, LICENSE dist/
+          Copy-Item target/release/venecita-dock.exe, target/release/venecita.exe dist/
+          Copy-Item README.md, LICENSE, docs/API.md dist/
           Copy-Item examples/config.toml dist/config.example.toml
       - uses: actions/upload-artifact@v4
         with:

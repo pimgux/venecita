@@ -12,7 +12,11 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
-
+venecita-core.workspace = true
+venecita-api.workspace = true
+serde_json.workspace = true
+clap = { version = "4.5", features = ["derive", "env"] }
+ureq = { version = "2", default-features = false, features = ["json"] }
 
 [[bin]]
 name = "venecita"

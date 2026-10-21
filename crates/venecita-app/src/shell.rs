@@ -14,6 +14,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -27,13 +28,14 @@ use tray_icon::menu::{
     CheckMenuItem, IconMenuItem, IsMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
 };
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
+use venecita_api::{Call, Events, Handler, Query, Server};
 use venecita_app::config_file;
 use venecita_app::driver::{Driver, UiRequest};
 use venecita_app::hotkeys::Bindings;
 use venecita_app::i18n::Lang;
 use venecita_app::icons::{icon_rgba, IconKind};
 use venecita_app::menu::{self, AppFlags, MenuCommand, MenuEntry};
-use venecita_app::paths;
+use venecita_app::{paths, token};
 use venecita_core::{Action, Hotkey};
 use venecita_platform::{Debouncer, PermissionStatus, Platform, PlatformEvent};
 
@@ -67,6 +69,14 @@ struct App {
     auto_arrange: Debouncer,
     /// When automatic arranging last ran: our own moves right after it are ignored.
     last_auto_arrange: Option<Instant>,
+    /// The local API server, while `[api]` enables it.
+    api: Option<Server>,
+    /// What the running server was started with, to restart it only when that changes.
+    api_settings: Option<(SocketAddr, bool, String)>,
+    /// Events for the API's WebSocket clients.
+    api_events: Events,
+    /// The state last sent to them, to send only changes.
+    last_state: Option<serde_json::Value>,
 }
 
 /// How long windows must stay still before automatic arranging puts them back.
@@ -158,6 +168,10 @@ pub fn run() {
         hotkey_actions: HashMap::new(),
         auto_arrange: Debouncer::new(AUTO_ARRANGE_DELAY, || post(|app| app.auto_arrange_now())),
         last_auto_arrange: None,
+        api: None,
+        api_settings: None,
+        api_events: Events::new(),
+        last_state: None,
     };
     APP.with(|cell| *cell.borrow_mut() = Some(app));
 
@@ -182,6 +196,7 @@ pub fn run() {
             app.register_hotkeys();
             app.apply_launch_at_login();
             app.try_start(true);
+            app.apply_api();
             app.refresh_menu();
         }
     });
@@ -240,6 +255,10 @@ impl App {
                 self.auto_arrange.trigger();
             }
         }
+        let focused = match &event {
+            PlatformEvent::WindowFocused { id } => Some(*id),
+            _ => None,
+        };
         let affects_menu = matches!(
             event,
             PlatformEvent::DisplaysChanged | PlatformEvent::SystemWoke
@@ -249,6 +268,123 @@ impl App {
         if affects_menu {
             self.refresh_menu();
         }
+        if let (Some(id), Some(_)) = (focused, &self.api) {
+            self.api_events
+                .publish(venecita_app::api::focus_event(self.driver.engine(), id));
+        }
+        self.publish_state();
+    }
+
+    /// Starts, restarts or stops the local API to match `[api]`. The token is created on
+    /// first use (`token.secret` next to the config file).
+    fn apply_api(&mut self) {
+        let cfg = self.driver.engine().config().api.clone();
+        if !cfg.enabled {
+            if self.api.take().is_some() {
+                info!("API stopped");
+            }
+            self.api_settings = None;
+            return;
+        }
+        let Ok(bind) = cfg.bind.parse::<SocketAddr>() else {
+            warn!(bind = %cfg.bind, "invalid api.bind; the API is off");
+            return;
+        };
+        let token_path = token::path_for(&self.config_path);
+        let token = match token::read(&token_path) {
+            Some(t) => t,
+            None => match token::rotate(&token_path) {
+                Ok(t) => {
+                    info!(path = %token_path.display(), "API token created");
+                    t
+                }
+                Err(e) => {
+                    error!(error = %e, "cannot create the API token; the API is off");
+                    return;
+                }
+            },
+        };
+        let wanted = (bind, cfg.allow_lan, token.clone());
+        if self.api.is_some() && self.api_settings.as_ref() == Some(&wanted) {
+            return;
+        }
+        // Stop the old server first so its port is free.
+        self.api = None;
+        let handler: Handler = Arc::new(|call| post(move |app| app.on_api(call)));
+        let settings = venecita_api::Settings {
+            bind,
+            allow_lan: cfg.allow_lan,
+            token,
+        };
+        // The old listener closes asynchronously: retry briefly if the port is still busy.
+        for attempt in 0..5 {
+            match venecita_api::start(settings.clone(), handler.clone(), self.api_events.clone()) {
+                Ok(server) => {
+                    self.api = Some(server);
+                    self.api_settings = Some(wanted);
+                    return;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && attempt < 4 => {
+                    std::thread::sleep(Duration::from_millis(200));
+                }
+                Err(e) => {
+                    error!(error = %e, %bind, "cannot start the local API");
+                    return;
+                }
+            }
+        }
+    }
+
+    /// A request from the local API.
+    fn on_api(&mut self, call: Call) {
+        use venecita_app::api;
+        match call {
+            Call::Query { query, reply } => {
+                let engine = self.driver.engine();
+                let value = match query {
+                    Query::State => api::state(engine),
+                    Query::Displays => {
+                        let connected = self.driver.platform().displays().unwrap_or_default();
+                        api::displays(engine, &connected)
+                    }
+                    Query::Windows => api::windows(engine),
+                    Query::Profiles => api::profiles(engine),
+                };
+                let _ = reply.send(value);
+            }
+            Call::Action { action, reply } => {
+                let result = api::check_action(self.driver.engine(), &action);
+                if result.is_ok() {
+                    info!(?action, "action from the API");
+                    self.on_action(action);
+                }
+                let _ = reply.send(result);
+            }
+        }
+    }
+
+    /// Tells WebSocket clients about state changes (and profile changes in particular).
+    fn publish_state(&mut self) {
+        if self.api.is_none() {
+            return;
+        }
+        let state = venecita_app::api::state(self.driver.engine());
+        if self.last_state.as_ref() == Some(&state) {
+            return;
+        }
+        let profile_changed = self.last_state.as_ref().is_some_and(|last| {
+            last["profile"] != state["profile"] || last["layout"] != state["layout"]
+        });
+        if profile_changed {
+            self.api_events.publish(serde_json::json!({
+                "type": "profile",
+                "profile": state["profile"],
+                "layout": state["layout"],
+            }));
+        }
+        self.api_events
+            .publish(serde_json::json!({ "type": "state", "state": state }));
+        self.last_state = Some(state);
     }
 
     /// Whether a reported move should make automatic arranging put windows back.
@@ -285,6 +421,7 @@ impl App {
         let requests = self.driver.on_action(action);
         self.handle_ui(requests);
         self.refresh_menu();
+        self.publish_state();
     }
 
     fn on_menu(&mut self, command: MenuCommand) {
@@ -385,6 +522,8 @@ impl App {
                 self.handle_ui(requests);
                 self.apply_launch_at_login();
                 self.register_hotkeys();
+                self.apply_api();
+                self.publish_state();
             }
             Err(e) => {
                 error!("configuration not applied, keeping the previous one:\n{e}");
@@ -443,12 +582,17 @@ impl App {
             return;
         };
         let file = self.config_path.clone();
+        let token_file = token::path_for(&self.config_path);
         let debouncer = notify_debouncer_mini::new_debouncer(
             Duration::from_millis(300),
             move |result: notify_debouncer_mini::DebounceEventResult| {
                 if let Ok(events) = result {
                     if events.iter().any(|e| e.path == file) {
                         post(|app| app.reload_config());
+                    }
+                    // Rotated from the settings window or the CLI: restart with the new one.
+                    if events.iter().any(|e| e.path == token_file) {
+                        post(|app| app.apply_api());
                     }
                 }
             },
@@ -580,7 +724,9 @@ fn init_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
     use tracing_subscriber::EnvFilter;
 
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        EnvFilter::new("warn,venecita_app=info,venecita_platform=info,venecita_dock=info")
+        EnvFilter::new(
+            "warn,venecita_app=info,venecita_platform=info,venecita_api=info,venecita_dock=info",
+        )
     });
     let stderr = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
 

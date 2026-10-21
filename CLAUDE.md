@@ -10,6 +10,9 @@ grid per display. macOS and Windows 10/11; Linux later. The user writes in Spani
   profiles, actions, stacks, the placement `Engine` (`handle(Input) -> Vec<Command>`).
 - `crates/venecita-platform` — `Platform` trait; `macos/` (AX, CoreGraphics, overlays),
   `windows/` (EnumWindows, SetWinEventHook, DisplayConfig, layered overlays), `fake.rs`.
+- `crates/venecita-api` — `paths`, `token` and (feature `server`) the axum HTTP/WebSocket
+  server; the app answers its `Call`s from the UI thread (`venecita-app/src/api.rs`).
+- `crates/venecita-cli` — the `venecita` command (clap + ureq, no server dependencies).
 - `crates/venecita-app` — `shell.rs` (tray app, shared), thin OS layers `mac.rs` / `win.rs`,
   `driver.rs`, `menu.rs`, `settings/` (view-model `model.rs` + egui `gui/`, run as a separate
   process: `venecita-dock --settings`), Fluent strings in `assets/i18n/{en,es}`.
@@ -40,7 +43,7 @@ as a CI artifact. Commits end with the `Co-Authored-By` line the session asks fo
 
 ## Status (2026-10-21)
 
-Done: phases 0–7 and 9 (Windows backend), redesigned settings (Apple style), tray menu with
+Done: phases 0–9 (8 = local API + `venecita` CLI, see `docs/API.md`; 9 = Windows backend), redesigned settings (Apple style), tray menu with
 icons and shortcuts, auto-arrange, dim layer, focus mode. Latest pre-release:
 `v0.1.0-alpha.2`.
 
@@ -54,5 +57,5 @@ or why it went to the dynamic zone. To confirm, look at:
 - the latest log in `%LOCALAPPDATA%\venecita-dock\logs\` (`active layout profile=… layout=…`
   and, with alpha.2, one line per window explaining its placement).
 
-Next, after that bug: phase 8 (local API + CLI), phase 10 (packaging: macOS .app, Windows
+Next, after that bug: phase 10 (packaging: macOS .app, Windows
 MSI), creating new shortcuts in Settings, the new tab-bar look on Windows.

@@ -1,0 +1,67 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Venecita Dock local API",
+    "version": "1",
+    "description": "Controls Venecita Dock from other programs. Listens on 127.0.0.1:47800 by default. Every endpoint except /v1/health and /v1/openapi.json needs `Authorization: Bearer <token>` (the token is in token.secret next to config.toml, or `venecita token show`). Errors are `{\"error\": \"…\"}`."
+  },
+  "servers": [{ "url": "http://127.0.0.1:47800" }],
+  "components": {
+    "securitySchemes": { "bearer": { "type": "http", "scheme": "bearer" } },
+    "schemas": {
+      "Error": { "type": "object", "properties": { "error": { "type": "string" } } },
+      "Ok": { "type": "object", "properties": { "status": { "type": "string", "example": "ok" } } },
+      "Action": {
+        "type": "object",
+        "required": ["action"],
+        "description": "An action as in the [hotkeys] table: move_zone, grow, shrink (dir: left|right|up|down), move_to_display (target: next|prev), snap_to_grid, pin_here, stack_next, stack_prev, dynamic_next, dynamic_prev, focus_window (id), focus_mode_toggle, relayout_all, activate_profile (name), next_profile, auto_profile, toggle_pause, open_settings.",
+        "properties": {
+          "action": { "type": "string", "example": "move_zone" },
+          "dir": { "type": "string", "enum": ["left", "right", "up", "down"] },
+          "target": { "type": "string", "enum": ["next", "prev"] },
+          "name": { "type": "string" },
+          "id": { "type": "integer" }
+        }
+      }
+    }
+  },
+  "security": [{ "bearer": [] }],
+  "paths": {
+    "/v1/health": {
+      "get": { "summary": "Is it running?", "security": [], "responses": { "200": { "description": "{\"status\":\"ok\",\"version\":\"…\"}" } } }
+    },
+    "/v1/state": {
+      "get": { "summary": "Active profile and layout, pause and focus-mode flags", "responses": { "200": { "description": "State" }, "401": { "description": "Missing or invalid token" } } }
+    },
+    "/v1/displays": {
+      "get": { "summary": "Connected displays and the definitions they resolved to", "responses": { "200": { "description": "Displays" } } }
+    },
+    "/v1/windows": {
+      "get": { "summary": "Managed windows with their app, zone and stack", "responses": { "200": { "description": "Windows" } } }
+    },
+    "/v1/profiles": {
+      "get": { "summary": "Profiles and their layouts", "responses": { "200": { "description": "Profiles" } } }
+    },
+    "/v1/actions": {
+      "post": {
+        "summary": "Run an action",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Action" } } } },
+        "responses": {
+          "200": { "description": "Done", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } } },
+          "400": { "description": "Invalid action", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "413": { "description": "Body larger than 16 KiB" }
+        }
+      }
+    },
+    "/v1/profiles/{name}/activate": {
+      "post": {
+        "summary": "Switch to a profile (turns automatic choice off)",
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Done" }, "404": { "description": "No such profile" } }
+      }
+    },
+    "/v1/events": {
+      "get": { "summary": "WebSocket: a JSON message for every change of state, focus or profile. The token may also be sent as a subprotocol (Sec-WebSocket-Protocol).", "responses": { "101": { "description": "Switching protocols" } } }
+    }
+  }
+}

@@ -11,5 +11,27 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = ["server"]
+# The HTTP/WebSocket server. Without it the crate only has what clients need: the paths
+# of Venecita's files and the token (used by the `venecita` CLI).
+server = ["dep:axum", "dep:tokio", "dep:subtle", "dep:futures-util", "dep:tracing"]
+
 [dependencies]
 venecita-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+dirs = "6"
+getrandom = "0.4"
+axum = { version = "0.8", optional = true, default-features = false, features = ["http1", "json", "tokio", "ws", "matched-path"] }
+tokio = { version = "1", optional = true, features = ["rt-multi-thread", "net", "sync", "macros", "time"] }
+subtle = { version = "2", optional = true }
+futures-util = { version = "0.3", optional = true, default-features = false, features = ["sink", "std"] }
+tracing = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "io-util", "time"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+tokio-tungstenite = "0.26"

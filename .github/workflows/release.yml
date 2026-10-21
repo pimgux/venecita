@@ -19,15 +19,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --workspace
-      - run: cargo build --release -p venecita-app --bin venecita-dock
+      - run: cargo build --release -p venecita-app --bin venecita-dock -p venecita-cli --bin venecita
       - name: Package
         id: package
         shell: pwsh
         run: |
           $name = "venecita-dock-${{ github.ref_name }}-windows-x86_64"
           New-Item -ItemType Directory $name | Out-Null
-          Copy-Item target/release/venecita-dock.exe $name/
-          Copy-Item README.md, LICENSE $name/
+          Copy-Item target/release/venecita-dock.exe, target/release/venecita.exe $name/
+          Copy-Item README.md, LICENSE, docs/API.md $name/
           Copy-Item examples/config.toml "$name/config.example.toml"
           Compress-Archive -Path $name -DestinationPath "$name.zip"
           $hash = (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower()
