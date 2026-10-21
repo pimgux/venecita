@@ -1,11 +1,11 @@
-# Publicar versión: al subir un tag como v0.1.0, corre las pruebas, arma los paquetes y
+# Publicar versión: al subir un tag como v0.1.1, corre las pruebas, arma los paquetes y
 # publica una versión en GitHub (página "Releases"):
 #
 #   • Windows: zip con los .exe e instalador MSI (por usuario, sin administrador).
 #   • macOS:   DMG con "Venecita Dock.app" (universal: Intel y Apple Silicon).
 #   • Un .sha256 por archivo, para verificar la descarga.
 #
-# Los tags con guion (v0.1.0-alpha.1) se publican como pre-release.
+# Los tags con guion (v0.1.1-alpha.1) se publican como pre-release.
 name: Publicar versión
 
 on:

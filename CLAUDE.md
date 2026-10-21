@@ -45,8 +45,9 @@ as a CI artifact. Commits end with the `Co-Authored-By` line the session asks fo
 ## Status (2026-10-21)
 
 Done: phases 0–9 (8 = local API + `venecita` CLI, see `docs/API.md`; 9 = Windows backend), redesigned settings (Apple style), tray menu with
-icons and shortcuts, auto-arrange, dim layer, focus mode. Latest pre-release:
-`v0.1.0-alpha.2`.
+icons and shortcuts, auto-arrange, dim layer, focus mode, copying rules between layouts,
+security fixes. Latest release: `v0.1.1` (first non-alpha; the Windows bug below is still
+to be confirmed on it).
 
 **Open bug (Windows):** the settings work, but when arranging, every window goes to the
 dynamic zone. Most likely the rules were written in a layout that isn't the one in use with
