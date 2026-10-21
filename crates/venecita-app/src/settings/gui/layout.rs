@@ -126,6 +126,8 @@ pub(super) struct State {
     new_app: String,
     /// The editor already switched to the layout in use (once, when it opened).
     opened_in_use: bool,
+    /// What the last "copy rules to…" did.
+    notice: Option<String>,
     running: Vec<(String, String)>,
     running_refreshed: Option<Instant>,
     error: Option<String>,
@@ -167,6 +169,7 @@ pub(super) fn show(
     // --- Profile / layout pickers ---
     let before = (state.profile, state.layout);
     state.profile = state.profile.min(config.profiles.len() - 1);
+    let mut copy_rules_to = None;
     theme::card(ui, None, |ui| {
         ui.horizontal(|ui| {
             ui.label(i18n.get("select-profile"));
@@ -198,6 +201,23 @@ pub(super) fn show(
                     format!("● {}", i18n.get("layout-in-use")),
                 );
             }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // Copy this layout's rules into another one (e.g. lid open → lid closed).
+                ui.menu_button(i18n.get("copy-rules-to"), |ui| {
+                    for (pi, profile) in config.profiles.iter().enumerate() {
+                        for (li, layout) in profile.layouts.iter().enumerate() {
+                            if (pi, li) == (state.profile, state.layout) {
+                                continue;
+                            }
+                            let label = format!("{} – {}", profile.name, layout.name);
+                            if ui.button(label).clicked() {
+                                copy_rules_to = Some((pi, li));
+                                ui.close_menu();
+                            }
+                        }
+                    }
+                });
+            });
         });
         // Rules only apply in the layout in use: say so when editing another one.
         match in_use {
@@ -227,6 +247,40 @@ pub(super) fn show(
             _ => {}
         }
     });
+    if let Some(target) = copy_rules_to {
+        let target_name = config.profiles[target.0].layouts[target.1].name.clone();
+        state.notice = Some(
+            match model.copy_rules_to((state.profile, state.layout), target) {
+                Ok(copied) => {
+                    let mut args = fluent::FluentArgs::new();
+                    args.set("added", copied.added);
+                    args.set("updated", copied.updated);
+                    args.set("skipped", copied.skipped);
+                    args.set("layout", target_name);
+                    let mut text = i18n.get_args("rules-copied", &args);
+                    if copied.skipped > 0 {
+                        text.push(' ');
+                        text.push_str(&i18n.get_args("rules-skipped", &args));
+                    }
+                    if copied.dynamic_zone {
+                        text.push(' ');
+                        text.push_str(&i18n.get("dynamic-zone-copied"));
+                    }
+                    text
+                }
+                Err(e) => e,
+            },
+        );
+    }
+    if let Some(notice) = state.notice.clone() {
+        ui.horizontal_wrapped(|ui| {
+            ui.colored_label(egui::Color32::from_rgb(52, 199, 89), notice);
+            if ui.small_button("×").clicked() {
+                state.notice = None;
+            }
+        });
+    }
+
     if (state.profile, state.layout) != before {
         clear_selection(state);
     }

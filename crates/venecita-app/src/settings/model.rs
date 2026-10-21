@@ -313,6 +313,7 @@ impl SettingsModel {
         let name = self.unique_profile_name(&base);
         copy["name"] = toml_edit::value(name);
         self.profiles_array().push(copy);
+        self.renumber_tables();
         self.refresh();
         Ok(())
     }
@@ -375,6 +376,102 @@ impl SettingsModel {
         self.layout_table_mut(profile_idx, layout_idx)?["displays"] = string_array(displays);
         self.refresh();
         Ok(())
+    }
+
+    /// Copies a layout (displays, dynamic zone and rules) within its profile, with a fresh
+    /// name. Returns the index of the copy.
+    pub fn duplicate_layout(
+        &mut self,
+        profile_idx: usize,
+        layout_idx: usize,
+    ) -> Result<usize, String> {
+        self.copy_layout_to(profile_idx, layout_idx, profile_idx)
+    }
+
+    /// Copies a layout into another profile (or the same one), with a name that is free
+    /// there. Returns the index of the copy in `target_profile`.
+    pub fn copy_layout_to(
+        &mut self,
+        profile_idx: usize,
+        layout_idx: usize,
+        target_profile: usize,
+    ) -> Result<usize, String> {
+        let mut copy = self.layout_table_mut(profile_idx, layout_idx)?.clone();
+        if target_profile >= self.config.profiles.len() {
+            return Err(format!("no profile at index {target_profile}"));
+        }
+        let base = copy
+            .get("name")
+            .and_then(|n| n.as_str())
+            .unwrap_or("layout")
+            .to_string();
+        let name = self.unique_layout_name(target_profile, &base, profile_idx == target_profile);
+        copy["name"] = toml_edit::value(name);
+        let layouts = self.layouts_array(target_profile)?;
+        layouts.push(copy);
+        let index = layouts.len() - 1;
+        self.renumber_tables();
+        self.refresh();
+        Ok(index)
+    }
+
+    /// Copies the rules of one layout into another existing layout (e.g. "Laptop open" →
+    /// "Laptop closed"), keeping only rules on displays the target uses. A rule in the
+    /// target for one of the same apps gets the copied zone instead of a second rule. The
+    /// dynamic zone is copied too when its display is in the target.
+    pub fn copy_rules_to(
+        &mut self,
+        from: (usize, usize),
+        to: (usize, usize),
+    ) -> Result<CopiedRules, String> {
+        if from == to {
+            return Err("choose another layout to copy the rules to".into());
+        }
+        let layout = |(p, l): (usize, usize)| {
+            self.config
+                .profiles
+                .get(p)
+                .and_then(|profile| profile.layouts.get(l))
+                .cloned()
+                .ok_or_else(|| format!("no layout at {p}/{l}"))
+        };
+        let source = layout(from)?;
+        let target = layout(to)?;
+        let mut result = CopiedRules::default();
+        for rule in &source.rules {
+            if !target.displays.contains(&rule.zone.display) {
+                result.skipped += 1;
+                continue;
+            }
+            let lower = |apps: &[String]| -> Vec<String> {
+                apps.iter().map(|a| a.trim().to_lowercase()).collect()
+            };
+            let apps = lower(&rule.apps);
+            let existing = self.config.profiles[to.0].layouts[to.1]
+                .rules
+                .iter()
+                .position(|r| lower(&r.apps).iter().any(|a| apps.contains(a)));
+            match existing {
+                Some(i) => {
+                    let current = self.config.profiles[to.0].layouts[to.1].rules[i].clone();
+                    if current.zone != rule.zone {
+                        self.set_rule(to.0, to.1, i, &current.apps, &rule.zone)?;
+                    }
+                    result.updated += 1;
+                }
+                None => {
+                    self.add_rule(to.0, to.1, &rule.apps, &rule.zone)?;
+                    result.added += 1;
+                }
+            }
+        }
+        if let Some(dz) = &source.dynamic_zone {
+            if target.displays.contains(&dz.display) {
+                self.set_dynamic_zone(to.0, to.1, Some(dz))?;
+                result.dynamic_zone = true;
+            }
+        }
+        Ok(result)
     }
 
     /// Deletes a layout.
@@ -566,6 +663,57 @@ impl SettingsModel {
             .position(|p| p.name.eq_ignore_ascii_case(name))
     }
 
+    /// A layout name not used in `profile`: `base` itself when copying to another profile
+    /// where it is free, else "base copy", "base copy 2"…
+    fn unique_layout_name(&self, profile: usize, base: &str, same_profile: bool) -> String {
+        let taken = |name: &str| {
+            self.config.profiles[profile]
+                .layouts
+                .iter()
+                .any(|l| l.name.eq_ignore_ascii_case(name))
+        };
+        if !same_profile && !taken(base) {
+            return base.to_string();
+        }
+        let candidate = format!("{base} copy");
+        if !taken(&candidate) {
+            return candidate;
+        }
+        (2..)
+            .map(|n| format!("{base} copy {n}"))
+            .find(|name| !taken(name))
+            .expect("an unused name exists")
+    }
+
+    /// Gives every table a document position in its logical order. A copied table keeps
+    /// the position of its original, and tables are written in position order, so without
+    /// this a layout copied into a later profile could be written before that profile's
+    /// header, which would put it in the wrong profile.
+    fn renumber_tables(&mut self) {
+        fn walk(item: &mut Item, next: &mut usize) {
+            match item {
+                Item::Table(table) => visit(table, next),
+                Item::ArrayOfTables(array) => {
+                    for table in array.iter_mut() {
+                        visit(table, next);
+                    }
+                }
+                _ => {}
+            }
+        }
+        fn visit(table: &mut Table, next: &mut usize) {
+            table.set_position(*next);
+            *next += 1;
+            for (_, item) in table.iter_mut() {
+                walk(item, next);
+            }
+        }
+        let mut next = 0;
+        for (_, item) in self.doc.as_table_mut().iter_mut() {
+            walk(item, &mut next);
+        }
+    }
+
     fn unique_profile_name(&self, base: &str) -> String {
         let candidate = format!("{base} copy");
         if self.profile_index(&candidate).is_none() {
@@ -576,6 +724,19 @@ impl SettingsModel {
             .find(|name| self.profile_index(name).is_none())
             .expect("an unused name exists")
     }
+}
+
+/// What [`SettingsModel::copy_rules_to`] did.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CopiedRules {
+    /// New rules in the target.
+    pub added: usize,
+    /// Rules of the target that got the copied zone.
+    pub updated: usize,
+    /// Rules left out: they are on a display the target doesn't use.
+    pub skipped: usize,
+    /// The dynamic zone was copied too.
+    pub dynamic_zone: bool,
 }
 
 /// Builds a [`Zone`] from the two corner cells of a drag (inclusive), in any order.

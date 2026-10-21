@@ -515,3 +515,127 @@ zone = { display = "laptop", col = 0, row = 0, w = 4, h = 4 }
         "rules untouched"
     );
 }
+
+#[test]
+fn layouts_can_be_duplicated_within_a_profile() {
+    let mut m = model(EXAMPLE);
+    let before = m.config().profiles[0].layouts.len();
+    let idx = m.duplicate_layout(0, 0).unwrap();
+    let layouts = &m.config().profiles[0].layouts;
+    assert_eq!(layouts.len(), before + 1);
+    assert_eq!(layouts[idx].name, "Notebook abierta copy");
+    assert_eq!(layouts[idx].rules, layouts[0].rules, "same rules");
+    assert_eq!(layouts[idx].displays, layouts[0].displays);
+    assert_eq!(layouts[idx].dynamic_zone, layouts[0].dynamic_zone);
+    // Again: the next copy gets another name.
+    let again = m.duplicate_layout(0, 0).unwrap();
+    assert_eq!(
+        m.config().profiles[0].layouts[again].name,
+        "Notebook abierta copy 2"
+    );
+    // The file still reads back as the same configuration.
+    assert_eq!(
+        &Config::from_toml_str(&m.to_toml_string()).unwrap(),
+        m.config()
+    );
+}
+
+#[test]
+fn layouts_can_be_copied_to_another_profile() {
+    let mut m = model(EXAMPLE);
+    // "Casa / Notebook abierta" into "Viaje" (the last profile) and into "Trabajo".
+    let viaje = m.config().profiles.len() - 1;
+    let casa_layout = m.config().profiles[0].layouts[0].clone();
+    let idx = m.copy_layout_to(0, 0, viaje).unwrap();
+    assert_eq!(
+        m.config().profiles[viaje].layouts[idx].name,
+        "Notebook abierta"
+    );
+    assert_eq!(
+        m.config().profiles[viaje].layouts[idx].rules,
+        casa_layout.rules
+    );
+    // "Trabajo" already has a "Notebook abierta": the copy gets a free name.
+    let idx = m.copy_layout_to(0, 0, 1).unwrap();
+    assert_eq!(
+        m.config().profiles[1].layouts[idx].name,
+        "Notebook abierta copy"
+    );
+    // The original is untouched and the file reads back the same: every layout stayed in
+    // its own profile.
+    assert_eq!(m.config().profiles[0].layouts[0], casa_layout);
+    let reparsed = Config::from_toml_str(&m.to_toml_string()).unwrap();
+    assert_eq!(&reparsed, m.config());
+    assert!(
+        m.to_toml_string().contains("# Example configuration"),
+        "comments survive"
+    );
+}
+
+#[test]
+fn duplicating_a_profile_keeps_every_layout_in_place() {
+    let mut m = model(EXAMPLE);
+    m.duplicate_profile(0).unwrap();
+    let copy = m.config().profiles.last().unwrap().clone();
+    assert_eq!(copy.name, "Casa copy");
+    assert_eq!(copy.layouts, m.config().profiles[0].layouts);
+    let reparsed = Config::from_toml_str(&m.to_toml_string()).unwrap();
+    assert_eq!(&reparsed, m.config());
+}
+
+#[test]
+fn rules_are_copied_to_another_layout_without_the_missing_display() {
+    let mut m = model(EXAMPLE);
+    // "Casa / Notebook abierta" (lg43 + laptop) → "Casa / Notebook cerrada" (lg43 only).
+    let terminal = vec!["com.apple.Terminal".to_string()];
+    m.add_rule(
+        0,
+        0,
+        &terminal,
+        &Placement::new("lg43", Zone::new(4, 0, 4, 4)),
+    )
+    .unwrap();
+    let notes = vec!["com.apple.Notes".to_string()];
+    m.add_rule(
+        0,
+        0,
+        &notes,
+        &Placement::new("laptop", Zone::new(0, 0, 4, 4)),
+    )
+    .unwrap();
+    // VS Code is in both; move it in "abierta" so the copy updates "cerrada".
+    let vscode = m.config().profiles[0].layouts[0].rules[0].clone();
+    let moved = Placement::new("lg43", Zone::new(0, 0, 4, 8));
+    m.set_rule(0, 0, 0, &vscode.apps, &moved).unwrap();
+    let cerrada_before = m.config().profiles[0].layouts[1].clone();
+
+    let copied = m.copy_rules_to((0, 0), (0, 1)).unwrap();
+    assert_eq!(
+        copied,
+        CopiedRules {
+            added: 1,            // Terminal
+            updated: 2,          // VS Code, Firefox
+            skipped: 1,          // Notes, on the laptop screen
+            dynamic_zone: false, // it is on the laptop screen too
+        }
+    );
+    let cerrada = &m.config().profiles[0].layouts[1];
+    assert_eq!(cerrada.rules.len(), cerrada_before.rules.len() + 1);
+    assert_eq!(
+        cerrada.rules[0].zone, moved,
+        "VS Code got the new zone, not a second rule"
+    );
+    assert!(cerrada.rules.iter().any(|r| r.apps == terminal));
+    assert!(
+        !cerrada.rules.iter().any(|r| r.apps == notes),
+        "no rule on the laptop screen"
+    );
+    assert_eq!(cerrada.dynamic_zone, cerrada_before.dynamic_zone);
+    assert!(m.is_valid(), "{:?}", m.errors());
+    assert_eq!(
+        &Config::from_toml_str(&m.to_toml_string()).unwrap(),
+        m.config()
+    );
+
+    assert!(m.copy_rules_to((0, 0), (0, 0)).is_err(), "not onto itself");
+}

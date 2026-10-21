@@ -17,6 +17,8 @@ pub(super) struct State {
     /// Names being typed for layouts, by index.
     layout_names: Vec<Option<String>>,
     error: Option<String>,
+    /// A confirmation, such as "copied to Trabajo".
+    notice: Option<String>,
 }
 
 pub(super) fn show(
@@ -64,6 +66,7 @@ pub(super) fn show(
                         state.selected = i;
                         state.profile_name = None;
                         state.layout_names.clear();
+                        state.notice = None;
                     }
                 }
                 theme::divider(ui);
@@ -128,7 +131,15 @@ pub(super) fn show(
                 .map(|d| d.id.clone())
                 .collect();
             state.layout_names.resize(profile.layouts.len(), None);
+            let profile_names: Vec<String> = model
+                .config()
+                .profiles
+                .iter()
+                .map(|p| p.name.clone())
+                .collect();
             let mut delete = None;
+            let mut duplicate = None;
+            let mut copy = None;
             for (li, layout) in profile.layouts.iter().enumerate() {
                 let caption = if li == 0 {
                     Some(i18n.get("layouts"))
@@ -151,6 +162,20 @@ pub(super) fn show(
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if theme::button(ui, Kind::Danger, None, i18n.get("delete")).clicked() {
                                 delete = Some(li);
+                            }
+                            // Copy this layout into another profile.
+                            ui.menu_button(i18n.get("copy-to"), |ui| {
+                                for (pi, name) in profile_names.iter().enumerate() {
+                                    if pi != idx && ui.button(name).clicked() {
+                                        copy = Some((li, pi));
+                                        ui.close_menu();
+                                    }
+                                }
+                            });
+                            if theme::button(ui, Kind::Secondary, None, i18n.get("duplicate"))
+                                .clicked()
+                            {
+                                duplicate = Some(li);
                             }
                         });
                     });
@@ -187,9 +212,30 @@ pub(super) fn show(
                     );
                 });
             }
+            if delete.is_some() || duplicate.is_some() || copy.is_some() {
+                state.notice = None;
+            }
             if let Some(li) = delete {
                 state.error = model.delete_layout(idx, li).err();
                 state.layout_names.clear();
+            }
+            if let Some(li) = duplicate {
+                state.error = model.duplicate_layout(idx, li).err();
+                state.layout_names.clear();
+            }
+            if let Some((li, target)) = copy {
+                match model.copy_layout_to(idx, li, target) {
+                    Ok(_) => {
+                        let mut args = fluent::FluentArgs::new();
+                        args.set("profile", profile_names[target].clone());
+                        state.error = None;
+                        state.notice = Some(i18n.get_args("layout-copied", &args));
+                    }
+                    Err(e) => state.error = Some(e),
+                }
+            }
+            if let Some(notice) = &state.notice {
+                ui.colored_label(egui::Color32::from_rgb(52, 199, 89), notice);
             }
 
             theme::card(ui, None, |ui| {
