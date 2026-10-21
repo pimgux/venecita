@@ -44,6 +44,10 @@ windows-sys = { version = "0.61", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = { version = "0.13", features = ["randr"] }
+dirs = "6"
+
 # Tests against the real macOS desktop. They need the main thread (so no libtest harness)
 # and the Accessibility permission, and only run when VENECITA_DESKTOP_TESTS=1.
 [[test]]
@@ -53,4 +57,9 @@ harness = false
 # The same contract on a real Windows desktop (opt-in: VENECITA_DESKTOP_TESTS=1).
 [[test]]
 name = "windows_desktop"
+harness = false
+
+# And on an X11 desktop (CI runs it under Xvfb with Openbox).
+[[test]]
+name = "x11_desktop"
 harness = false

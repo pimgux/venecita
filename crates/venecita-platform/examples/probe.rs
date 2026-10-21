@@ -1,4 +1,4 @@
-//! Manual test tool for the platform backend (macOS and Windows).
+//! Manual test tool for the platform backend (macOS, Windows and Linux/X11).
 //!
 //! ```sh
 //! cargo run -p venecita-platform --example probe              # list displays and windows
@@ -324,7 +324,92 @@ fn main() {
     }
 }
 
-#[cfg(not(any(target_os = "macos", windows)))]
+#[cfg(target_os = "linux")]
 fn main() {
-    eprintln!("The probe supports macOS and Windows.");
+    use std::sync::Arc;
+    use std::time::Instant;
+
+    use venecita_core::grid::{zone_rect, GridSize, Zone};
+    use venecita_core::rules::app_matches;
+    use venecita_platform::linux::X11Platform;
+    use venecita_platform::Platform;
+
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_writer(std::io::stderr)
+        .init();
+    let platform = X11Platform::connect().expect("cannot connect to the X server ($DISPLAY)");
+    let args: Vec<String> = std::env::args().skip(1).collect();
+
+    match args.first().map(String::as_str) {
+        None | Some("list") => {
+            println!("== Displays ==");
+            for d in platform.displays().expect("displays") {
+                println!(
+                    "{:>10}  {:<28} builtin={:<5} vendor={:?} model={:?} serial={:?}",
+                    d.handle, d.name, d.builtin, d.vendor, d.model, d.serial
+                );
+                println!(
+                    "            frame={:?}\n            work ={:?}",
+                    d.frame, d.work_area
+                );
+            }
+            println!("\n== Windows ==");
+            let focused = platform.focused_window().ok().flatten();
+            for w in platform.windows().expect("windows") {
+                let mark = if Some(w.id) == focused { "*" } else { " " };
+                println!(
+                    "{mark} {:>10} pid={:<6} {:<10} {:<24} {:<30} {:?}",
+                    w.id.to_string(),
+                    w.pid,
+                    format!("{:?}", w.kind),
+                    w.app.id,
+                    w.title.chars().take(30).collect::<String>(),
+                    w.frame
+                );
+            }
+        }
+        Some("move") => {
+            let name = args.get(1).expect("usage: probe move <app class>");
+            let window = platform
+                .windows()
+                .expect("windows")
+                .into_iter()
+                .find(|w| w.is_manageable() && app_matches(name, &w.app))
+                .unwrap_or_else(|| panic!("no normal window of `{name}` found"));
+            let display = platform.displays().expect("displays").remove(0);
+            let target = zone_rect(
+                display.work_area,
+                GridSize::default(),
+                Zone::new(0, 0, 4, 4),
+                8.0,
+            );
+            platform.set_frame(window.id, target).expect("set_frame");
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            let actual = platform.window(window.id).expect("window").frame;
+            println!("requested {target:?}\nactual    {actual:?}");
+            platform.focus(window.id).expect("focus");
+        }
+        Some("watch") => {
+            let start = Instant::now();
+            platform
+                .start_events(Arc::new(move |event| {
+                    println!("[{:>7.3}s] {event:?}", start.elapsed().as_secs_f64())
+                }))
+                .expect("start_events");
+            println!("Watching events. Open/close/move windows, change displays… Ctrl-C to stop.");
+            loop {
+                std::thread::park();
+            }
+        }
+        Some(other) => {
+            eprintln!("unknown command `{other}` (use list, move <app>, watch)");
+            std::process::exit(2);
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows, target_os = "linux")))]
+fn main() {
+    eprintln!("The probe supports macOS, Windows and Linux (X11).");
 }

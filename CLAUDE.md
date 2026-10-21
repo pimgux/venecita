@@ -9,7 +9,8 @@ grid per display. macOS and Windows 10/11; Linux later. The user writes in Spani
 - `crates/venecita-core` — pure logic: grid, displays, rules, config (TOML + validation),
   profiles, actions, stacks, the placement `Engine` (`handle(Input) -> Vec<Command>`).
 - `crates/venecita-platform` — `Platform` trait; `macos/` (AX, CoreGraphics, overlays),
-  `windows/` (EnumWindows, SetWinEventHook, DisplayConfig, layered overlays), `fake.rs`.
+  `windows/` (EnumWindows, SetWinEventHook, DisplayConfig, layered overlays), `linux/`
+  (x11rb: EWMH, RandR, an event thread), `fake.rs`.
 - `crates/venecita-api` — `paths`, `token` and (feature `server`) the axum HTTP/WebSocket
   server; the app answers its `Call`s from the UI thread (`venecita-app/src/api.rs`).
 - `crates/venecita-cli` — the `venecita` command (clap + ureq, no server dependencies).
@@ -61,5 +62,9 @@ Packaging (phase 10, first half): `scripts/bundle-macos.sh` (universal .app + DM
 signed unless `MACOS_SIGN_IDENTITY`), `wix/venecita.wxs` (per-user MSI, WiX 5), app icon from
 `icons::app_icon_rgba` (`cargo run -p venecita-app --example app-icons`).
 
-Next, after that bug: creating new shortcuts in Settings, the new tab-bar look on Windows,
-the Linux (X11) backend.
+Also done: new shortcuts from Settings, Windows 11–style tab bars, and the Linux X11 backend
+(`venecita-platform::linux::X11Platform`, EWMH + RandR; contract test `x11_desktop` runs in
+CI under Xvfb + Openbox). Not yet on Linux: the tray app (tray-icon needs GTK), tab bars and
+the dim layer.
+
+Next, after that bug: a Linux tray app if wanted, Developer ID signing / notarization.

@@ -3,7 +3,8 @@
 > A keyboard-driven window manager that **remembers where every application belongs**.
 > macOS first, then Windows and Linux. Written in Rust. Licensed under GPL-3.0.
 
-**Status: early development.** Runs on macOS and Windows 10/11. See [the roadmap](#roadmap).
+**Status: early development.** Runs on macOS and Windows 10/11. The Linux (X11) backend is
+ready (tested in CI); the Linux tray app comes later. See [the roadmap](#roadmap).
 
 ## Why
 

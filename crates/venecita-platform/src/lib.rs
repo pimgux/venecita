@@ -8,7 +8,7 @@
 //! |---|---|
 //! | [`macos::MacPlatform`] | Accessibility API + CoreGraphics + NSWorkspace |
 //! | [`windows::WinPlatform`] | Win32: `EnumWindows`, `SetWinEventHook`, DisplayConfig |
-//! | Linux (X11) | phase 10 |
+//! | [`linux::X11Platform`] | X11 + EWMH (`_NET_CLIENT_LIST`, `_NET_MOVERESIZE_WINDOW`) + RandR |
 //! | [`fake::FakePlatform`] | In-memory, used by tests on every OS |
 //!
 //! All coordinates follow the core convention: logical points, global desktop
@@ -25,6 +25,8 @@ pub use venecita_core::window::{Pid, PlatformEvent, WindowId, WindowInfo, Window
 pub mod contract;
 mod debounce;
 pub mod fake;
+#[cfg(target_os = "linux")]
+pub mod linux;
 #[cfg(target_os = "macos")]
 pub mod macos;
 #[cfg(windows)]
