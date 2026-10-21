@@ -18,7 +18,7 @@ grid per display. macOS and Windows 10/11; Linux later. The user writes in Spani
   process: `venecita-dock --settings`), Fluent strings in `assets/i18n/{en,es}`.
 - `docs/specs/phase-*.md` — the roadmap specs. `docs/ARCHITECTURE.md`, `docs/CONFIG.md`.
 
-## Checks (CI runs them on macOS, Windows and Linux)
+## Checks (the "Verificación" workflow runs them on macOS, Windows and Linux)
 
 ```sh
 cargo fmt --all --check
@@ -37,7 +37,7 @@ cargo test --workspace
 
 ## Releases
 
-Pushing a tag `v*` runs `.github/workflows/release.yml` and publishes the zipped Windows exe
+Pushing a tag `v*` runs the "Publicar versión" workflow (`.github/workflows/release.yml`) and publishes the zipped Windows exe
 with its SHA-256 (tags with `-` are pre-releases). Every push to `main` also uploads the exe
 as a CI artifact. Commits end with the `Co-Authored-By` line the session asks for.
 

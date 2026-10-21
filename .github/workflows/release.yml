@@ -1,7 +1,8 @@
-name: Release
+# Publicar versión: al subir un tag como v0.1.0, corre las pruebas, compila los
+# ejecutables y publica una versión en GitHub (página "Releases") con el zip y su
+# checksum SHA-256. Los tags con guion (v0.1.0-alpha.1) se publican como pre-release.
+name: Publicar versión
 
-# Pushing a tag such as v0.1.0 builds the executables and publishes a GitHub Release.
-# Tags with a hyphen (v0.1.0-alpha.1) are marked as pre-releases.
 on:
   push:
     tags: ["v*"]
@@ -14,14 +15,19 @@ env:
 
 jobs:
   windows:
+    name: Versión para Windows
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --workspace
-      - run: cargo build --release -p venecita-app --bin venecita-dock -p venecita-cli --bin venecita
-      - name: Package
-        id: package
+      - name: Descargar el código
+        uses: actions/checkout@v4
+      - name: Instalar Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Correr las pruebas (cargo test)
+        run: cargo test --workspace
+      - name: Compilar venecita-dock.exe y venecita.exe (release)
+        run: cargo build --release -p venecita-app --bin venecita-dock -p venecita-cli --bin venecita
+      - name: Armar el zip y su checksum
+        id: zip
         shell: pwsh
         run: |
           $name = "venecita-dock-${{ github.ref_name }}-windows-x86_64"
@@ -32,11 +38,12 @@ jobs:
           Compress-Archive -Path $name -DestinationPath "$name.zip"
           $hash = (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower()
           "$hash  $name.zip" | Out-File -Encoding ascii "$name.zip.sha256"
-          "zip=$name.zip" >> $env:GITHUB_OUTPUT
-      - uses: softprops/action-gh-release@v2
+          "archivo=$name.zip" >> $env:GITHUB_OUTPUT
+      - name: Publicar la versión en GitHub
+        uses: softprops/action-gh-release@v2
         with:
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           files: |
-            ${{ steps.package.outputs.zip }}
-            ${{ steps.package.outputs.zip }}.sha256
+            ${{ steps.zip.outputs.archivo }}
+            ${{ steps.zip.outputs.archivo }}.sha256
