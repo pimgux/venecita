@@ -62,18 +62,16 @@ jobs:
         env:
           VENECITA_DESKTOP_TESTS: "1"
         run: cargo test -p venecita-platform --test windows_desktop
-      # En Linux: un escritorio X11 virtual (Xvfb) con un gestor de ventanas (Openbox) y una
-      # ventana de verdad (xterm), y la ventana se mueve para comprobar los bordes.
+      # En Linux: un escritorio X11 virtual (Xvfb) con un gestor de ventanas (Openbox). El test
+      # abre su propia ventana y la mueve para comprobar los bordes.
       - name: Preparar un escritorio X11 virtual
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb openbox xterm >/dev/null
+          sudo apt-get install -y -qq xvfb openbox >/dev/null
           Xvfb :99 -screen 0 1920x1080x24 &
           sleep 2
           DISPLAY=:99 openbox &
-          sleep 2
-          DISPLAY=:99 xterm -geometry 80x24+200+150 &
           sleep 2
       - name: Probar contra el escritorio X11
         if: runner.os == 'Linux'
@@ -81,7 +79,14 @@ jobs:
           DISPLAY: ":99"
           VENECITA_DESKTOP_TESTS: "1"
           VENECITA_DESKTOP_MOVE: "1"
-        run: cargo test -p venecita-platform --test x11_desktop -- --nocapture
+        shell: bash
+        # If it fails, its output also shows as errors of the run.
+        run: |
+          set -o pipefail
+          if ! cargo test -p venecita-platform --test x11_desktop 2>&1 | tee x11.log; then
+            grep -E "panicked|assert|error|ok:" x11.log | sed 's/^/::error::/'
+            exit 1
+          fi
 
   paquete-windows:
     name: Paquete de Windows (para probar)
