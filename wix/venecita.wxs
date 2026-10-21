@@ -25,8 +25,10 @@
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="ProgramsFolder" Name="Programs">
         <Directory Id="INSTALLFOLDER" Name="Venecita Dock">
-          <!-- Per-user components use a registry value as their key path. -->
-          <Component Id="Binaries" Guid="*">
+          <!-- Per-user components use a registry value as their key path, so their GUIDs
+               are fixed (WiX can only generate them for single-file components). Keep
+               them: changing a GUID breaks upgrades. -->
+          <Component Id="Binaries" Guid="BDBA2EC7-487B-45F3-AA46-4381BA34ACD6">
             <RegistryValue Root="HKCU" Key="Software\Venecita Dock" Name="installed"
                            Type="integer" Value="1" KeyPath="yes" />
             <File Id="VenecitaDockExe" Source="$(var.BinDir)/venecita-dock.exe" />
@@ -44,7 +46,7 @@
     </StandardDirectory>
 
     <StandardDirectory Id="ProgramMenuFolder">
-      <Component Id="StartMenuShortcut" Guid="*">
+      <Component Id="StartMenuShortcut" Guid="61F87B65-38F7-4945-9AA2-2726BA9972D3">
         <Shortcut Id="StartMenuShortcut" Name="Venecita Dock"
                   Description="Remembers where every application belongs"
                   Target="[INSTALLFOLDER]venecita-dock.exe" WorkingDirectory="INSTALLFOLDER"
