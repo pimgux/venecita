@@ -10,6 +10,7 @@ mod general;
 mod hotkeys;
 mod layout;
 mod profiles;
+mod theme;
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -19,6 +20,7 @@ use fluent::FluentArgs;
 
 use super::model::SettingsModel;
 use crate::i18n::Lang;
+use crate::icons::IconKind;
 use crate::intl::I18n;
 
 /// Opens the settings window and blocks until it is closed.
@@ -32,14 +34,15 @@ pub fn run(config_path: PathBuf, os_language: Option<String>) -> eframe::Result<
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(i18n.get("window-title"))
-            .with_inner_size([980.0, 700.0])
-            .with_min_inner_size([760.0, 520.0]),
+            .with_inner_size([1060.0, 740.0])
+            .with_min_inner_size([820.0, 560.0]),
         ..Default::default()
     };
     eframe::run_native(
         "venecita-dock-settings",
         options,
-        Box::new(move |_cc| {
+        Box::new(move |cc| {
+            theme::apply(&cc.egui_ctx);
             Ok(Box::new(SettingsApp {
                 model,
                 config_path,
@@ -51,6 +54,7 @@ pub fn run(config_path: PathBuf, os_language: Option<String>) -> eframe::Result<
                 profiles: Default::default(),
                 hotkeys: Default::default(),
                 general: Default::default(),
+                icons: Default::default(),
                 toast: None,
                 confirm_close: false,
                 allow_close: false,
@@ -68,12 +72,12 @@ enum Tab {
     General,
 }
 
-const TABS: [(Tab, &str); 5] = [
-    (Tab::Layout, "tab-layout"),
-    (Tab::Displays, "tab-displays"),
-    (Tab::Profiles, "tab-profiles"),
-    (Tab::Hotkeys, "tab-hotkeys"),
-    (Tab::General, "tab-general"),
+const TABS: [(Tab, &str, IconKind); 5] = [
+    (Tab::Layout, "tab-layout", IconKind::Arrange),
+    (Tab::Displays, "tab-displays", IconKind::Display),
+    (Tab::Profiles, "tab-profiles", IconKind::Profile),
+    (Tab::Hotkeys, "tab-hotkeys", IconKind::Keyboard),
+    (Tab::General, "tab-general", IconKind::General),
 ];
 
 struct SettingsApp {
@@ -88,6 +92,7 @@ struct SettingsApp {
     profiles: profiles::State,
     hotkeys: hotkeys::State,
     general: general::State,
+    icons: theme::Icons,
     /// A short message shown in the status bar.
     toast: Option<(String, Instant)>,
     /// The user tried to close the window with unsaved changes.
@@ -111,35 +116,84 @@ impl eframe::App for SettingsApp {
         self.displays.refresh_if_stale();
         displays::show_identify(ctx, &self.displays);
 
-        egui::TopBottomPanel::top("tabs").show(ctx, |ui| {
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                for (tab, key) in TABS {
-                    ui.selectable_value(&mut self.tab, tab, self.i18n.get(key));
+        // Sidebar navigation, like System Settings.
+        let sidebar = egui::Frame::none()
+            .fill(theme::sidebar_fill(&ctx.style().visuals))
+            .inner_margin(egui::Margin::symmetric(10.0, 14.0));
+        egui::SidePanel::left("nav")
+            .exact_width(210.0)
+            .resizable(false)
+            .frame(sidebar)
+            .show(ctx, |ui| {
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(6.0);
+                    ui.label(egui::RichText::new("Venecita Dock").size(17.0).strong());
+                });
+                ui.add_space(14.0);
+                for (tab, key, icon) in TABS {
+                    let texture = self.icons.tile(ui.ctx(), icon);
+                    if nav_item(ui, &texture, &self.i18n.get(key), self.tab == tab).clicked() {
+                        self.tab = tab;
+                    }
                 }
             });
-            ui.add_space(2.0);
-        });
 
-        egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
-            status_bar(ui, model, &self.i18n, &mut self.toast);
-        });
+        let page = egui::Frame::none()
+            .fill(ctx.style().visuals.panel_fill)
+            .inner_margin(egui::Margin::symmetric(24.0, 10.0));
+        egui::TopBottomPanel::bottom("status")
+            .frame(page)
+            .show(ctx, |ui| {
+                status_bar(ui, model, &self.i18n, &mut self.toast);
+            });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| match self.tab {
-                    Tab::Layout => {
-                        layout::show(ui, model, &self.i18n, &mut self.layout, &self.displays)
-                    }
-                    Tab::Displays => displays::show(ui, model, &self.i18n, &mut self.displays),
-                    Tab::Profiles => profiles::show(ui, model, &self.i18n, &mut self.profiles),
-                    Tab::Hotkeys => hotkeys::show(ui, model, &self.i18n, &mut self.hotkeys),
-                    Tab::General => {
-                        general::show(ui, model, &self.i18n, &mut self.general, &self.config_path)
-                    }
-                });
-        });
+        egui::CentralPanel::default()
+            .frame(page.inner_margin(egui::Margin {
+                left: 28.0,
+                right: 28.0,
+                top: 18.0,
+                bottom: 6.0,
+            }))
+            .show(ctx, |ui| {
+                // The layout editor sizes itself to the window (no page scrolling).
+                if self.tab == Tab::Layout {
+                    layout::show(
+                        ui,
+                        model,
+                        &self.i18n,
+                        &mut self.layout,
+                        &self.displays,
+                        &mut self.icons,
+                    );
+                    return;
+                }
+                // The other pages scroll vertically when they are taller than the window.
+                // Never horizontally: that would give them unlimited width.
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        let icons = &mut self.icons;
+                        match self.tab {
+                            Tab::Layout => {}
+                            Tab::Displays => {
+                                displays::show(ui, model, &self.i18n, &mut self.displays, icons)
+                            }
+                            Tab::Profiles => {
+                                profiles::show(ui, model, &self.i18n, &mut self.profiles, icons)
+                            }
+                            Tab::Hotkeys => hotkeys::show(ui, model, &self.i18n, &mut self.hotkeys),
+                            Tab::General => general::show(
+                                ui,
+                                model,
+                                &self.i18n,
+                                &mut self.general,
+                                &self.config_path,
+                                icons,
+                            ),
+                        }
+                    });
+            });
 
         // Switching the language takes effect immediately.
         let language = model.config().general.language;
@@ -168,6 +222,47 @@ impl eframe::App for SettingsApp {
     }
 }
 
+/// One entry of the sidebar: icon and label, highlighted when selected.
+fn nav_item(
+    ui: &mut egui::Ui,
+    icon: &egui::TextureHandle,
+    label: &str,
+    selected: bool,
+) -> egui::Response {
+    let size = egui::vec2(ui.available_width(), 32.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    let visuals = ui.visuals();
+    let fill = if selected {
+        Some(egui::Color32::from_rgb(10, 132, 255))
+    } else if response.hovered() {
+        Some(visuals.widgets.hovered.weak_bg_fill)
+    } else {
+        None
+    };
+    if let Some(fill) = fill {
+        ui.painter().rect_filled(rect, theme::RADIUS - 1.0, fill);
+    }
+    let icon_rect = egui::Rect::from_center_size(
+        egui::pos2(rect.left() + 20.0, rect.center().y),
+        egui::vec2(20.0, 20.0),
+    );
+    egui::Image::new(icon).paint_at(ui, icon_rect);
+    let color = if selected {
+        egui::Color32::WHITE
+    } else {
+        visuals.text_color()
+    };
+    ui.painter().text(
+        egui::pos2(rect.left() + 40.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        label,
+        egui::FontId::proportional(14.0),
+        color,
+    );
+    ui.add_space(2.0);
+    response
+}
+
 /// Validation problems, the unsaved-changes marker and the Save button.
 fn status_bar(
     ui: &mut egui::Ui,
@@ -175,7 +270,6 @@ fn status_bar(
     i18n: &I18n,
     toast: &mut Option<(String, Instant)>,
 ) {
-    ui.add_space(4.0);
     let problems = model.errors().len() + usize::from(model.parse_error().is_some());
     if problems > 0 {
         let mut args = FluentArgs::new();
@@ -195,26 +289,24 @@ fn status_bar(
         });
     }
     ui.horizontal(|ui| {
-        let save = ui.add_enabled(
-            model.is_dirty() && model.is_valid(),
-            egui::Button::new(i18n.get("save")),
-        );
-        if save.clicked()
-            || (ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S))
-                && model.is_dirty())
-        {
-            *toast = Some((save_message(model, i18n), Instant::now()));
-        }
-        if model.is_dirty() {
-            ui.label(egui::RichText::new(i18n.get("unsaved-changes")).weak());
-        }
         if let Some((message, _)) = toast {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(message.as_str());
-            });
+            ui.label(message.as_str());
+        } else if model.is_dirty() {
+            ui.label(egui::RichText::new(i18n.get("unsaved-changes")).color(theme::subtle(ui)));
         }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let enabled = model.is_dirty() && model.is_valid();
+            let save = ui
+                .add_enabled_ui(enabled, |ui| {
+                    theme::button(ui, theme::Kind::Primary, None, i18n.get("save"))
+                })
+                .inner;
+            let shortcut = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S));
+            if save.clicked() || (shortcut && enabled) {
+                *toast = Some((save_message(model, i18n), Instant::now()));
+            }
+        });
     });
-    ui.add_space(2.0);
 }
 
 fn save_message(model: &mut SettingsModel, i18n: &I18n) -> String {

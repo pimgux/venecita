@@ -8,6 +8,8 @@ use eframe::egui;
 use venecita_core::display::{resolve_displays, DisplayInfo, DisplayMatcher};
 use venecita_core::grid::{GridSize, MAX_GRID_CELLS};
 
+use super::theme::{self, Icons, Kind};
+use crate::icons::IconKind;
 use crate::intl::I18n;
 use crate::settings::model::{matcher_for, suggest_display_id, SettingsModel};
 
@@ -47,13 +49,24 @@ impl State {
     }
 }
 
-pub(super) fn show(ui: &mut egui::Ui, model: &mut SettingsModel, i18n: &I18n, state: &mut State) {
-    ui.heading(i18n.get("displays-title"));
+pub(super) fn show(
+    ui: &mut egui::Ui,
+    model: &mut SettingsModel,
+    i18n: &I18n,
+    state: &mut State,
+    icons: &mut Icons,
+) {
     ui.horizontal(|ui| {
-        if ui.button(i18n.get("identify")).clicked() {
-            state.identify_until = Some(Instant::now() + IDENTIFY_FOR);
-        }
-        ui.label(egui::RichText::new(i18n.get("identify-hint")).weak());
+        theme::page_title(ui, i18n.get("displays-title"));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let display_icon = icons.tile(ui.ctx(), IconKind::Display);
+            if theme::button(ui, Kind::Primary, Some(&display_icon), i18n.get("identify"))
+                .on_hover_text(i18n.get("identify-hint"))
+                .clicked()
+            {
+                state.identify_until = Some(Instant::now() + IDENTIFY_FOR);
+            }
+        });
     });
     if let Some(e) = &state.error {
         ui.colored_label(ui.visuals().error_fg_color, e);
@@ -67,47 +80,44 @@ pub(super) fn show(ui: &mut egui::Ui, model: &mut SettingsModel, i18n: &I18n, st
             .find(|r| r.handle == handle)
             .map(|r| r.def_id.clone())
     };
+    let display_icon = icons.tile(ui.ctx(), IconKind::Display);
 
     // --- Connected ---
-    ui.add_space(8.0);
-    ui.strong(i18n.get("connected-displays"));
-    egui::Grid::new("connected")
-        .num_columns(5)
-        .striped(true)
-        .spacing([16.0, 6.0])
-        .show(ui, |ui| {
-            ui.label("#");
-            ui.label(i18n.get("display-name"));
-            ui.label(i18n.get("display-resolution"));
-            ui.label(i18n.get("displays-matched-as"));
-            ui.label("");
-            ui.end_row();
-            for (n, info) in state.connected.iter().enumerate() {
-                ui.label((n + 1).to_string());
-                let kind = if info.builtin {
-                    i18n.get("display-builtin")
-                } else {
-                    i18n.get("display-external")
-                };
-                ui.label(format!("{}  ({kind})", info.name));
-                let (w, h) = info.pixel_size();
-                ui.label(format!("{w} × {h}"));
-                match def_for(&info.handle) {
-                    Some(id) => {
-                        ui.monospace(id);
-                    }
-                    None => {
-                        ui.label(egui::RichText::new(i18n.get("display-unmatched")).weak());
-                    }
-                }
-                ui.horizontal(|ui| {
+    theme::card(ui, Some(&i18n.get("connected-displays")), |ui| {
+        ui.label(
+            egui::RichText::new(i18n.get("connected-hint"))
+                .small()
+                .color(theme::subtle(ui)),
+        );
+        for (n, info) in state.connected.iter().enumerate() {
+            theme::divider(ui);
+            ui.horizontal(|ui| {
+                ui.add(egui::Image::new(&display_icon).fit_to_exact_size(egui::Vec2::splat(32.0)));
+                ui.vertical(|ui| {
+                    ui.label(egui::RichText::new(format!("{}  {}", n + 1, info.name)).strong());
+                    let kind = if info.builtin {
+                        i18n.get("display-builtin")
+                    } else {
+                        i18n.get("display-external")
+                    };
+                    let (w, h) = info.pixel_size();
+                    let matched = def_for(&info.handle)
+                        .map(|id| format!("{}: {id}", i18n.get("displays-matched-as")))
+                        .unwrap_or_else(|| i18n.get("display-unmatched"));
+                    ui.label(
+                        egui::RichText::new(format!("{kind} · {w} × {h} · {matched}"))
+                            .small()
+                            .color(theme::subtle(ui)),
+                    );
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let id = state
                         .assign_ids
                         .entry(info.handle.clone())
-                        .or_insert_with(|| suggest_display_id(info, &defs));
-                    ui.add(egui::TextEdit::singleline(id).desired_width(110.0));
-                    if ui.button(i18n.get("assign-as")).clicked() {
-                        match model.add_display(id, &matcher_for(info)) {
+                        .or_insert_with(|| suggest_display_id(info, &defs))
+                        .clone();
+                    if theme::button(ui, Kind::Secondary, None, i18n.get("assign-as")).clicked() {
+                        match model.add_display(&id, &matcher_for(info)) {
                             Ok(_) => {
                                 state.error = None;
                                 state.assign_ids.remove(&info.handle);
@@ -115,37 +125,48 @@ pub(super) fn show(ui: &mut egui::Ui, model: &mut SettingsModel, i18n: &I18n, st
                             Err(e) => state.error = Some(e),
                         }
                     }
+                    if let Some(id) = state.assign_ids.get_mut(&info.handle) {
+                        ui.add(egui::TextEdit::singleline(id).desired_width(120.0));
+                    }
                 });
-                ui.end_row();
-            }
-        });
+            });
+        }
+    });
 
     // --- Defined ---
-    ui.add_space(12.0);
-    ui.strong(i18n.get("defined-displays"));
     let mut delete = None;
-    egui::Grid::new("defined")
-        .num_columns(4)
-        .striped(true)
-        .spacing([16.0, 6.0])
-        .show(ui, |ui| {
-            for (i, def) in defs.iter().enumerate() {
-                ui.monospace(&def.id);
-                ui.label(matcher_summary(&def.matcher));
-                ui.horizontal(|ui| {
+    theme::card(ui, Some(&i18n.get("defined-displays")), |ui| {
+        for (i, def) in defs.iter().enumerate() {
+            if i > 0 {
+                theme::divider(ui);
+            }
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(egui::RichText::new(&def.id).strong().monospace());
+                    ui.label(
+                        egui::RichText::new(matcher_summary(&def.matcher))
+                            .small()
+                            .color(theme::subtle(ui)),
+                    );
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if theme::button(ui, Kind::Danger, None, i18n.get("delete")).clicked() {
+                        delete = Some(i);
+                    }
                     let mut custom = def.grid.is_some();
                     let mut grid = def.grid.unwrap_or(model.config().general.grid);
-                    let toggled = ui.checkbox(&mut custom, i18n.get("display-grid")).changed();
                     let mut resized = false;
                     if custom {
                         resized |= ui
-                            .add(egui::DragValue::new(&mut grid.cols).range(1..=MAX_GRID_CELLS))
+                            .add(egui::DragValue::new(&mut grid.rows).range(1..=MAX_GRID_CELLS))
                             .changed();
                         ui.label("×");
                         resized |= ui
-                            .add(egui::DragValue::new(&mut grid.rows).range(1..=MAX_GRID_CELLS))
+                            .add(egui::DragValue::new(&mut grid.cols).range(1..=MAX_GRID_CELLS))
                             .changed();
                     }
+                    let toggled = theme::switch(ui, &mut custom);
+                    ui.label(i18n.get("display-grid"));
                     if toggled || resized {
                         let grid = custom.then_some(GridSize {
                             cols: grid.cols,
@@ -154,12 +175,9 @@ pub(super) fn show(ui: &mut egui::Ui, model: &mut SettingsModel, i18n: &I18n, st
                         state.error = model.set_display_grid(i, grid).err();
                     }
                 });
-                if ui.button(i18n.get("delete")).clicked() {
-                    delete = Some(i);
-                }
-                ui.end_row();
-            }
-        });
+            });
+        }
+    });
     if let Some(i) = delete {
         state.error = model.delete_display(i).err();
     }

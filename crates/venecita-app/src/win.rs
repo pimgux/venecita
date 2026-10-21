@@ -22,6 +22,7 @@ use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_
 use windows_sys::Win32::UI::HiDpi::{
     SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, EnumWindows, GetMessageW, GetWindow,
     GetWindowThreadProcessId, IsWindowVisible, PostMessageW, PostQuitMessage, RegisterClassW,
@@ -186,6 +187,12 @@ pub fn bring_to_front(pid: u32) {
             SetForegroundWindow(search.found);
         }
     }
+}
+
+/// Whether the primary mouse button is held (e.g. the user is still dragging a window).
+pub fn mouse_button_down() -> bool {
+    // SAFETY: plain call; the high bit means "currently down".
+    unsafe { GetAsyncKeyState(i32::from(VK_LBUTTON)) as u16 & 0x8000 != 0 }
 }
 
 /// White on the dark taskbar (the Windows 11 default), black on a light one.

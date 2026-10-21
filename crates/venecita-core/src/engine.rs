@@ -228,6 +228,9 @@ pub struct Engine {
     /// of their zone until they are back in it (the platform reports our own resizes, and
     /// a report can arrive after the window was already restored).
     focus_touched: HashSet<WindowId>,
+    /// The last frame Venecita gave each window, to tell its own moves (which the macOS
+    /// backend reports too) from the user's.
+    placed: BTreeMap<WindowId, Rect>,
 }
 
 /// State of the extra focus mode.
@@ -264,6 +267,7 @@ impl Engine {
             layering: None,
             focus_mode: None,
             focus_touched: HashSet::new(),
+            placed: BTreeMap::new(),
         }
     }
 
@@ -287,6 +291,22 @@ impl Engine {
         self.focused
     }
 
+    /// Whether a reported move of `id` to `frame` was made by the user: the window is one
+    /// Venecita arranges, it isn't where Venecita last put it, and focus mode isn't
+    /// handling it. Used for automatic arranging (`general.auto_arrange`).
+    pub fn is_user_move(&self, id: WindowId, frame: Rect) -> bool {
+        let Some(window) = self.windows.get(&id) else {
+            return false;
+        };
+        if self.focus_touched.contains(&id) || self.assignment(window).is_none() {
+            return false;
+        }
+        !self
+            .placed
+            .get(&id)
+            .is_some_and(|p| p.approx_eq(&frame, 2.0))
+    }
+
     /// Processes one input and returns the commands to execute.
     pub fn handle(&mut self, input: Input) -> Vec<Command> {
         // A focus change always re-stacks: the app that got the focus raised its window
@@ -297,6 +317,11 @@ impl Engine {
         );
         let mut commands = self.handle_input(input);
         self.keep_enlarged(&mut commands);
+        for c in &commands {
+            if let Command::SetFrame(id, frame) = c {
+                self.placed.insert(*id, *frame);
+            }
+        }
         commands.extend(self.sync_tab_bars());
         commands.extend(self.sync_layering(focus_event));
         commands
@@ -654,6 +679,7 @@ impl Engine {
         for &id in ids {
             self.windows.remove(&id);
             self.focus_touched.remove(&id);
+            self.placed.remove(&id);
             if let Some(mode) = &mut self.focus_mode {
                 if mode.enlarged.is_some_and(|e| e.id == id) {
                     mode.enlarged = None;

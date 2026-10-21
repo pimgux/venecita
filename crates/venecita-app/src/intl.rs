@@ -152,7 +152,10 @@ mod tests {
             let i18n = I18n::new(lang);
             for id in message_ids(src) {
                 // Messages with placeholders need args; skip the two that take them.
-                if matches!(id.as_str(), "rule-count" | "save-failed" | "problems") {
+                if matches!(
+                    id.as_str(),
+                    "rule-count" | "save-failed" | "problems" | "editing-rule"
+                ) {
                     continue;
                 }
                 assert_ne!(i18n.get(&id), id, "`{id}` did not resolve in {lang:?}");

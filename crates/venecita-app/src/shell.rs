@@ -17,21 +17,25 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use global_hotkey::hotkey::HotKey;
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use tracing::{error, info, warn};
-use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use tray_icon::menu::accelerator::Accelerator;
+use tray_icon::menu::{
+    CheckMenuItem, IconMenuItem, IsMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
+};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 use venecita_app::config_file;
 use venecita_app::driver::{Driver, UiRequest};
 use venecita_app::hotkeys::Bindings;
 use venecita_app::i18n::Lang;
+use venecita_app::icons::{icon_rgba, IconKind};
 use venecita_app::menu::{self, AppFlags, MenuCommand, MenuEntry};
 use venecita_app::paths;
-use venecita_core::Action;
-use venecita_platform::{PermissionStatus, Platform, PlatformEvent};
+use venecita_core::{Action, Hotkey};
+use venecita_platform::{Debouncer, PermissionStatus, Platform, PlatformEvent};
 
 use crate::os;
 
@@ -59,7 +63,16 @@ struct App {
     hotkey_actions: HashMap<u32, Action>,
     /// The settings window process, while it runs (see [`SETTINGS_FLAG`]).
     settings_window: Option<std::process::Child>,
+    /// Fires once the user stops moving windows (automatic arranging).
+    auto_arrange: Debouncer,
+    /// When automatic arranging last ran: our own moves right after it are ignored.
+    last_auto_arrange: Option<Instant>,
 }
+
+/// How long windows must stay still before automatic arranging puts them back.
+const AUTO_ARRANGE_DELAY: Duration = Duration::from_millis(700);
+/// Moves reported this soon after automatic arranging are Venecita's own.
+const AUTO_ARRANGE_COOLDOWN: Duration = Duration::from_millis(1500);
 
 thread_local! {
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
@@ -111,6 +124,7 @@ pub fn run() {
     let os_language = os::os_language();
     let lang = Lang::resolve(loaded.config.general.language, os_language.as_deref());
     let launch_at_login = loaded.config.general.launch_at_login;
+    let auto_arrange = loaded.config.general.auto_arrange;
 
     let tray = TrayIconBuilder::new()
         .with_icon(tray_image(os::tray_icon_color()))
@@ -130,6 +144,7 @@ pub fn run() {
             permission_missing: false,
             config_error: loaded.error.is_some(),
             launch_at_login,
+            auto_arrange,
             hotkey_conflicts: Vec::new(),
         },
         started: false,
@@ -141,6 +156,8 @@ pub fn run() {
         hotkeys_registered: Vec::new(),
         settings_window: None,
         hotkey_actions: HashMap::new(),
+        auto_arrange: Debouncer::new(AUTO_ARRANGE_DELAY, || post(|app| app.auto_arrange_now())),
+        last_auto_arrange: None,
     };
     APP.with(|cell| *cell.borrow_mut() = Some(app));
 
@@ -218,6 +235,11 @@ impl App {
     }
 
     fn on_event(&mut self, event: PlatformEvent) {
+        if let PlatformEvent::WindowMoved { id, frame } = &event {
+            if self.wants_auto_arrange(*id, *frame) {
+                self.auto_arrange.trigger();
+            }
+        }
         let affects_menu = matches!(
             event,
             PlatformEvent::DisplaysChanged | PlatformEvent::SystemWoke
@@ -227,6 +249,36 @@ impl App {
         if affects_menu {
             self.refresh_menu();
         }
+    }
+
+    /// Whether a reported move should make automatic arranging put windows back.
+    fn wants_auto_arrange(
+        &self,
+        id: venecita_platform::WindowId,
+        frame: venecita_platform::Rect,
+    ) -> bool {
+        let engine = self.driver.engine();
+        self.flags.auto_arrange
+            && !self.driver.status().paused
+            && !engine.focus_mode()
+            && self
+                .last_auto_arrange
+                .map_or(true, |t| t.elapsed() > AUTO_ARRANGE_COOLDOWN)
+            && engine.is_user_move(id, frame)
+    }
+
+    /// The user stopped moving windows: put everything back in its zone.
+    fn auto_arrange_now(&mut self) {
+        if !self.flags.auto_arrange {
+            return;
+        }
+        // Still dragging (the window just paused under the mouse): wait for the release.
+        if os::mouse_button_down() {
+            self.auto_arrange.trigger();
+            return;
+        }
+        self.last_auto_arrange = Some(Instant::now());
+        self.on_action(Action::RelayoutAll);
     }
 
     fn on_action(&mut self, action: Action) {
@@ -247,6 +299,13 @@ impl App {
             }
             MenuCommand::RelayoutAll => self.on_action(Action::RelayoutAll),
             MenuCommand::TogglePause => self.on_action(Action::TogglePause),
+            MenuCommand::ToggleAutoArrange => {
+                let enabled = !self.flags.auto_arrange;
+                // Persist in the file; the watcher reloads it and applies the change.
+                if let Err(e) = config_file::set_auto_arrange(&self.config_path, enabled) {
+                    error!(error = %e, "cannot update auto_arrange in the config file");
+                }
+            }
             MenuCommand::ToggleLaunchAtLogin => {
                 let enabled = !self.flags.launch_at_login;
                 // Persist in the file; the watcher reloads it and applies the change.
@@ -321,6 +380,7 @@ impl App {
                 self.flags.config_error = false;
                 self.lang = Lang::resolve(config.general.language, self.os_language.as_deref());
                 self.flags.launch_at_login = config.general.launch_at_login;
+                self.flags.auto_arrange = config.general.auto_arrange;
                 let requests = self.driver.reload_config(config);
                 self.handle_ui(requests);
                 self.apply_launch_at_login();
@@ -406,32 +466,14 @@ impl App {
 
     /// Rebuilds the tray menu from the current state.
     fn refresh_menu(&self) {
-        let entries = menu::build(&self.driver.status(), &self.flags, self.lang);
+        let hotkeys = &self.driver.engine().config().hotkeys;
+        let entries = menu::build(&self.driver.status(), &self.flags, self.lang, hotkeys);
         let native = Menu::new();
-        for entry in entries {
-            let result = match entry {
-                MenuEntry::Label(text) => native.append(&MenuItem::new(text, false, None)),
-                MenuEntry::Item {
-                    text,
-                    command,
-                    enabled,
-                } => native.append(&MenuItem::with_id(command.id(), text, enabled, None)),
-                MenuEntry::Check {
-                    text,
-                    command,
-                    checked,
-                    enabled,
-                } => native.append(&CheckMenuItem::with_id(
-                    command.id(),
-                    text,
-                    enabled,
-                    checked,
-                    None,
-                )),
-                MenuEntry::Separator => native.append(&PredefinedMenuItem::separator()),
-            };
-            if let Err(e) = result {
-                warn!(error = %e, "cannot build menu item");
+        for entry in &entries {
+            if let Some(item) = native_item(entry) {
+                if let Err(e) = native.append(item.as_ref()) {
+                    warn!(error = %e, "cannot build menu item");
+                }
             }
         }
         self.tray.set_menu(Some(Box::new(native)));
@@ -442,6 +484,93 @@ impl App {
         };
         let _ = self.tray.set_tooltip(Some(tooltip));
     }
+}
+
+/// The native menu item for an entry.
+fn native_item(entry: &MenuEntry) -> Option<Box<dyn IsMenuItem>> {
+    Some(match entry {
+        MenuEntry::Label(text) => Box::new(MenuItem::new(text, false, None)),
+        MenuEntry::Item {
+            text,
+            command,
+            enabled,
+            icon,
+            shortcut,
+        } => {
+            let accelerator = shortcut.as_deref().and_then(accelerator);
+            match icon {
+                Some(kind) => Box::new(IconMenuItem::with_id(
+                    command.id(),
+                    text,
+                    *enabled,
+                    Some(menu_icon(*kind)),
+                    accelerator,
+                )),
+                None => Box::new(MenuItem::with_id(command.id(), text, *enabled, accelerator)),
+            }
+        }
+        MenuEntry::Check {
+            text,
+            command,
+            checked,
+            enabled,
+            shortcut,
+        } => Box::new(CheckMenuItem::with_id(
+            command.id(),
+            text,
+            *enabled,
+            *checked,
+            shortcut.as_deref().and_then(accelerator),
+        )),
+        MenuEntry::Submenu {
+            text,
+            icon,
+            entries,
+        } => {
+            let submenu = Submenu::new(text, true);
+            if let Some(kind) = icon {
+                submenu.set_icon(Some(menu_icon(*kind)));
+            }
+            for e in entries {
+                if let Some(item) = native_item(e) {
+                    let _ = submenu.append(item.as_ref());
+                }
+            }
+            Box::new(submenu)
+        }
+        MenuEntry::Separator => Box::new(PredefinedMenuItem::separator()),
+    })
+}
+
+/// A colored menu icon (drawn at 2× so it stays sharp on Retina / high-DPI screens).
+fn menu_icon(kind: IconKind) -> tray_icon::menu::Icon {
+    const SIZE: u32 = 36;
+    tray_icon::menu::Icon::from_rgba(icon_rgba(kind, SIZE), SIZE, SIZE).expect("valid icon")
+}
+
+/// The menu's rendering of a shortcut such as `ctrl+alt+r` (shown greyed on the right).
+fn accelerator(shortcut: &str) -> Option<Accelerator> {
+    use tray_icon::menu::accelerator::{Code, Modifiers};
+    let hotkey: Hotkey = shortcut.parse().ok()?;
+    // The menu crate uses another version of `keyboard-types` than the hotkey crate: go
+    // through the key's name (`KeyR`, `ArrowLeft`), which both spell the same.
+    let key: Code = venecita_app::hotkeys::key_code(&hotkey.key)?
+        .to_string()
+        .parse()
+        .ok()?;
+    let m = hotkey.mods;
+    let mut mods = Modifiers::empty();
+    for (on, flag) in [
+        (m.ctrl, Modifiers::CONTROL),
+        (m.alt, Modifiers::ALT),
+        (m.shift, Modifiers::SHIFT),
+        (m.meta, Modifiers::SUPER),
+    ] {
+        if on {
+            mods |= flag;
+        }
+    }
+    Some(Accelerator::new(Some(mods), key))
 }
 
 /// Logs to the log directory (daily files, see [`paths::log_dir`]) and to stderr.
@@ -504,4 +633,29 @@ fn tray_image(color: [u8; 3]) -> Icon {
         }
     }
     Icon::from_rgba(rgba, W, H).expect("valid icon")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shortcuts_become_menu_accelerators() {
+        use tray_icon::menu::accelerator::{Code, Modifiers};
+        let a = accelerator("ctrl+alt+r").expect("valid");
+        assert_eq!(
+            a,
+            Accelerator::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyR)
+        );
+        let a = accelerator("ctrl+alt+shift+left").expect("valid");
+        assert_eq!(
+            a,
+            Accelerator::new(
+                Some(Modifiers::CONTROL | Modifiers::ALT | Modifiers::SHIFT),
+                Code::ArrowLeft
+            )
+        );
+        assert!(accelerator("ctrl+alt+bracketright").is_some());
+        assert!(accelerator("not a shortcut").is_none());
+    }
 }

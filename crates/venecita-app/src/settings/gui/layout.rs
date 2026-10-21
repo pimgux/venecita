@@ -15,13 +15,17 @@ use venecita_core::grid::{GridSize, Zone};
 
 use super::displays;
 use super::rule_color;
+use super::theme::{self, Icons, Kind};
+use crate::icons::IconKind;
 use crate::intl::I18n;
 use crate::settings::model::{zone_from_drag, zone_moved, zone_resized, Edges, SettingsModel};
 
 /// Aspect ratio used for a display that isn't connected right now.
 const FALLBACK_SIZE: (f64, f64) = (1600.0, 1000.0);
-/// Maximum height of a drawn display, in points.
-const MAX_HEIGHT: f32 = 320.0;
+/// Share of the page's height the displays take; the rest is for the selected zone.
+const DISPLAYS_SHARE: f32 = 0.45;
+/// Limits of a drawn display's height, in points.
+const DISPLAY_HEIGHT: std::ops::RangeInclusive<f32> = 110.0..=420.0;
 /// How close to an edge, in points, the pointer must be to resize instead of move.
 const EDGE_GRAB: f32 = 7.0;
 
@@ -118,6 +122,8 @@ pub(super) struct State {
     editing_rule: Option<usize>,
     /// Comma-separated app ids for the selection.
     apps: String,
+    /// App id being typed to add to the selection.
+    new_app: String,
     running: Vec<(String, String)>,
     running_refreshed: Option<Instant>,
     error: Option<String>,
@@ -135,39 +141,43 @@ pub(super) fn show(
     i18n: &I18n,
     state: &mut State,
     displays: &displays::State,
+    icons: &mut Icons,
 ) {
-    ui.heading(i18n.get("layout-editor-title"));
+    theme::page_title(ui, i18n.get("layout-editor-title"));
     let config = model.config().clone();
     if config.profiles.is_empty() {
-        ui.label(egui::RichText::new(i18n.get("no-profiles")).weak());
+        ui.label(egui::RichText::new(i18n.get("no-profiles")).color(theme::subtle(ui)));
         return;
     }
 
     // --- Profile / layout pickers ---
     let before = (state.profile, state.layout);
     state.profile = state.profile.min(config.profiles.len() - 1);
-    ui.horizontal(|ui| {
-        ui.label(i18n.get("select-profile"));
-        egui::ComboBox::from_id_salt("profile")
-            .selected_text(&config.profiles[state.profile].name)
-            .show_ui(ui, |ui| {
-                for (i, p) in config.profiles.iter().enumerate() {
-                    ui.selectable_value(&mut state.profile, i, &p.name);
-                }
-            });
-        let layouts = &config.profiles[state.profile].layouts;
-        if layouts.is_empty() {
-            return;
-        }
-        state.layout = state.layout.min(layouts.len() - 1);
-        ui.label(i18n.get("select-layout"));
-        egui::ComboBox::from_id_salt("layout")
-            .selected_text(&layouts[state.layout].name)
-            .show_ui(ui, |ui| {
-                for (i, l) in layouts.iter().enumerate() {
-                    ui.selectable_value(&mut state.layout, i, &l.name);
-                }
-            });
+    theme::card(ui, None, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(i18n.get("select-profile"));
+            egui::ComboBox::from_id_salt("profile")
+                .selected_text(&config.profiles[state.profile].name)
+                .show_ui(ui, |ui| {
+                    for (i, p) in config.profiles.iter().enumerate() {
+                        ui.selectable_value(&mut state.profile, i, &p.name);
+                    }
+                });
+            let layouts = &config.profiles[state.profile].layouts;
+            if layouts.is_empty() {
+                return;
+            }
+            state.layout = state.layout.min(layouts.len() - 1);
+            ui.add_space(12.0);
+            ui.label(i18n.get("select-layout"));
+            egui::ComboBox::from_id_salt("layout")
+                .selected_text(&layouts[state.layout].name)
+                .show_ui(ui, |ui| {
+                    for (i, l) in layouts.iter().enumerate() {
+                        ui.selectable_value(&mut state.layout, i, &l.name);
+                    }
+                });
+        });
     });
     if (state.profile, state.layout) != before {
         clear_selection(state);
@@ -177,7 +187,7 @@ pub(super) fn show(
         .get(state.layout)
         .cloned()
     else {
-        ui.label(egui::RichText::new(i18n.get("no-layouts")).weak());
+        ui.label(egui::RichText::new(i18n.get("no-layouts")).color(theme::subtle(ui)));
         return;
     };
     if state.editing_rule.is_some_and(|i| i >= layout.rules.len()) {
@@ -195,36 +205,49 @@ pub(super) fn show(
             .unwrap_or(FALLBACK_SIZE)
     };
     let sizes: Vec<(f64, f64)> = layout.displays.iter().map(|id| size_of(id)).collect();
-    let spacing = 16.0;
-    let total_w: f64 = sizes.iter().map(|s| s.0).sum();
-    let max_h = sizes.iter().map(|s| s.1).fold(1.0, f64::max);
-    let avail = ui.available_width() - spacing * layout.displays.len() as f32;
-    let scale = (f64::from(avail) / total_w.max(1.0)).min(f64::from(MAX_HEIGHT) / max_h);
-
-    ui.add_space(6.0);
-    ui.label(egui::RichText::new(i18n.get("drag-hint")).weak());
-    state.canvases = std::mem::take(&mut state.canvases_next);
+    // The displays get a share of the window's height, so the whole page fits in it.
+    let max_display_height = ((ui.available_height() - 40.0) * DISPLAYS_SHARE)
+        .clamp(*DISPLAY_HEIGHT.start(), *DISPLAY_HEIGHT.end());
     let mut commit = None;
-    ui.horizontal_top(|ui| {
-        ui.spacing_mut().item_spacing.x = spacing;
-        for (id, (w, h)) in layout.displays.iter().zip(&sizes) {
-            let grid = config.grid_for(id);
-            ui.vertical(|ui| {
-                ui.monospace(format!("{id}  ({}×{})", grid.cols, grid.rows));
-                let size = egui::vec2((w * scale) as f32, (h * scale) as f32);
-                let canvas = Canvas {
-                    id: id.clone(),
-                    // Replaced by the real rectangle once allocated.
-                    rect: egui::Rect::NOTHING,
-                    grid,
-                };
-                if let Some(c) =
-                    display_canvas(ui, state, &layout, canvas, size, &i18n.get("dynamic-zone"))
-                {
-                    commit = Some(c);
-                }
-            });
-        }
+    theme::card(ui, None, |ui| {
+        let spacing = 16.0;
+        let total_w: f64 = sizes.iter().map(|s| s.0).sum();
+        let max_h = sizes.iter().map(|s| s.1).fold(1.0, f64::max);
+        let avail = ui.available_width() - spacing * layout.displays.len() as f32;
+        let scale =
+            (f64::from(avail) / total_w.max(1.0)).min(f64::from(max_display_height) / max_h);
+
+        ui.label(
+            egui::RichText::new(i18n.get("drag-hint"))
+                .small()
+                .color(theme::subtle(ui)),
+        );
+        state.canvases = std::mem::take(&mut state.canvases_next);
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = spacing;
+            for (id, (w, h)) in layout.displays.iter().zip(&sizes) {
+                let grid = config.grid_for(id);
+                ui.vertical(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!("{id}  ·  {}×{}", grid.cols, grid.rows))
+                            .small()
+                            .color(theme::subtle(ui)),
+                    );
+                    let size = egui::vec2((w * scale) as f32, (h * scale) as f32);
+                    let canvas = Canvas {
+                        id: id.clone(),
+                        // Replaced by the real rectangle once allocated.
+                        rect: egui::Rect::NOTHING,
+                        grid,
+                    };
+                    let label = i18n.get("dynamic-zone");
+                    if let Some(c) = display_canvas(ui, state, &layout, canvas, size, &label, icons)
+                    {
+                        commit = Some(c);
+                    }
+                });
+            }
+        });
     });
 
     // A drag that ended: apply it to the configuration.
@@ -247,82 +270,239 @@ pub(super) fn show(
         };
     }
 
-    // --- The selection ---
-    ui.add_space(10.0);
-    let Some(selection) = state.selection.clone() else {
-        ui.label(egui::RichText::new(i18n.get("no-selection")).weak());
-        rules_list(ui, state, &layout);
-        return;
-    };
-    egui::Frame::group(ui.style()).show(ui, |ui| {
-        ui.label(format!(
-            "{} · col {} · row {} · {}×{}",
-            selection.display, selection.col, selection.row, selection.w, selection.h
-        ));
-        ui.label(i18n.get("zone-apps"));
-        ui.add(
-            egui::TextEdit::multiline(&mut state.apps)
-                .hint_text(i18n.get("type-app"))
-                .desired_rows(2)
-                .desired_width(f32::INFINITY),
-        );
-
-        refresh_running(state);
-        if !state.running.is_empty() {
-            ui.label(egui::RichText::new(i18n.get("running-apps")).weak());
-            ui.horizontal_wrapped(|ui| {
-                for (bundle, name) in state.running.clone() {
-                    let label = if name.is_empty() {
-                        bundle.clone()
-                    } else {
-                        name
-                    };
-                    if ui.small_button(label).on_hover_text(&bundle).clicked() {
-                        let mut apps = parse_apps(&state.apps);
-                        if !apps.contains(&bundle) {
-                            apps.push(bundle);
-                            state.apps = apps.join(", ");
-                        }
-                    }
+    // --- The selection and the rules, in the space that is left ---
+    // Only this part scrolls, and only if the window is too small for it.
+    egui::ScrollArea::vertical()
+        .id_salt("zone")
+        .auto_shrink([false, false])
+        .max_height(ui.available_height())
+        .show(ui, |ui| {
+            match state.selection.clone() {
+                Some(selection) => {
+                    selection_card(ui, model, i18n, state, &layout, &selection, icons)
                 }
-            });
-        }
-
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            let (p, l) = (state.profile, state.layout);
-            let apps = parse_apps(&state.apps);
-            if ui.button(i18n.get("apply-rule")).clicked() {
-                let result = match state.editing_rule {
-                    Some(r) => model.set_rule(p, l, r, &apps, &selection),
-                    None => model
-                        .add_rule(p, l, &apps, &selection)
-                        .map(|r| state.editing_rule = Some(r)),
-                };
-                state.error = result.err();
-            }
-            if let Some(r) = state.editing_rule {
-                if ui.button(i18n.get("delete")).clicked() {
-                    state.error = model.delete_rule(p, l, r).err();
-                    clear_selection(state);
-                }
-                if ui.button(i18n.get("new-rule")).clicked() {
-                    state.editing_rule = None;
-                    state.apps.clear();
+                None => {
+                    theme::card(ui, Some(&i18n.get("zone-title")), |ui| {
+                        ui.label(
+                            egui::RichText::new(i18n.get("no-selection")).color(theme::subtle(ui)),
+                        );
+                    });
                 }
             }
-            if ui.button(i18n.get("mark-dynamic")).clicked() {
-                state.error = model.set_dynamic_zone(p, l, Some(&selection)).err();
-            }
-            if layout.dynamic_zone.is_some() && ui.button(i18n.get("clear-dynamic")).clicked() {
-                state.error = model.set_dynamic_zone(p, l, None).err();
-            }
+            rules_list(ui, i18n, state, &layout, icons);
         });
+}
+
+/// The selected zone: its apps, right below them the actions, then the apps to add.
+fn selection_card(
+    ui: &mut egui::Ui,
+    model: &mut SettingsModel,
+    i18n: &I18n,
+    state: &mut State,
+    layout: &Layout,
+    selection: &Placement,
+    icons: &mut Icons,
+) {
+    let caption = format!(
+        "{} · {} · col {} · {} {} · {}×{}",
+        i18n.get("zone-title"),
+        selection.display,
+        selection.col,
+        i18n.get("grid-rows").to_lowercase(),
+        selection.row,
+        selection.w,
+        selection.h
+    );
+    theme::card(ui, Some(&caption), |ui| {
+        apps_panel(ui, model, i18n, state, layout, selection, icons);
         if let Some(e) = &state.error {
             ui.colored_label(ui.visuals().error_fg_color, e);
         }
     });
-    rules_list(ui, state, &layout);
+}
+
+/// The apps of the selected zone (removable chips), the actions, a field to add an app
+/// and the running apps to pick from.
+#[allow(clippy::too_many_arguments)]
+fn apps_panel(
+    ui: &mut egui::Ui,
+    model: &mut SettingsModel,
+    i18n: &I18n,
+    state: &mut State,
+    layout: &Layout,
+    selection: &Placement,
+    icons: &mut Icons,
+) {
+    // Say plainly whether "Apply" creates a rule or changes one.
+    let mode = match state.editing_rule {
+        Some(r) => {
+            let names = layout
+                .rules
+                .get(r)
+                .map(|rule| display_names(state, &rule.apps))
+                .unwrap_or_default();
+            let mut args = fluent::FluentArgs::new();
+            args.set("apps", names.join(", "));
+            i18n.get_args("editing-rule", &args)
+        }
+        None => i18n.get("creating-rule"),
+    };
+    ui.add(egui::Label::new(egui::RichText::new(mode).small().color(theme::subtle(ui))).wrap());
+    ui.label(egui::RichText::new(i18n.get("zone-apps")).strong());
+
+    let mut apps = parse_apps(&state.apps);
+    let mut changed = false;
+    ui.horizontal_wrapped(|ui| {
+        let mut remove = None;
+        for (i, app) in apps.iter().enumerate() {
+            let name = app_name(state, app);
+            if theme::app_chip(ui, icons, app, &name, true).1 {
+                remove = Some(i);
+            }
+        }
+        if let Some(i) = remove {
+            apps.remove(i);
+            changed = true;
+        }
+    });
+    if changed {
+        state.apps = apps.join(", ");
+        changed = false;
+    }
+
+    // The actions, right below the zone's apps; the row wraps in a narrow window.
+    ui.add_space(4.0);
+    ui.horizontal_wrapped(|ui| {
+        actions(ui, model, i18n, state, layout, selection, icons);
+    });
+    theme::divider(ui);
+
+    ui.horizontal(|ui| {
+        let field = (ui.available_width() - 110.0).max(120.0);
+        let edit = ui.add(
+            egui::TextEdit::singleline(&mut state.new_app)
+                .hint_text(i18n.get("type-app"))
+                .desired_width(field),
+        );
+        let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        if theme::button(ui, Kind::Secondary, None, i18n.get("add")).clicked() || enter {
+            let app = state.new_app.trim().to_string();
+            if !app.is_empty() && !apps.contains(&app) {
+                apps.push(app);
+                changed = true;
+            }
+            state.new_app.clear();
+        }
+    });
+
+    refresh_running(state);
+    if !state.running.is_empty() {
+        ui.add_space(6.0);
+        ui.label(
+            egui::RichText::new(i18n.get("running-apps"))
+                .small()
+                .color(theme::subtle(ui)),
+        );
+        ui.horizontal_wrapped(|ui| {
+            for (id, name) in state.running.clone() {
+                if apps.contains(&id) {
+                    continue;
+                }
+                let label = if name.is_empty() { id.clone() } else { name };
+                if theme::app_chip(ui, icons, &id, &label, false)
+                    .0
+                    .interact(egui::Sense::click())
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
+                    .clicked()
+                {
+                    apps.push(id);
+                    changed = true;
+                }
+            }
+        });
+    }
+    if changed {
+        state.apps = apps.join(", ");
+    }
+}
+
+/// The action buttons, in a row.
+fn actions(
+    ui: &mut egui::Ui,
+    model: &mut SettingsModel,
+    i18n: &I18n,
+    state: &mut State,
+    layout: &Layout,
+    selection: &Placement,
+    icons: &mut Icons,
+) {
+    let (p, l) = (state.profile, state.layout);
+    let apps = parse_apps(&state.apps);
+    let button = |ui: &mut egui::Ui, kind, icon: Option<&egui::TextureHandle>, text: String| {
+        theme::button(ui, kind, icon, text)
+    };
+    let arrange = icons.tile(ui.ctx(), IconKind::Arrange);
+    if button(ui, Kind::Primary, Some(&arrange), i18n.get("apply-rule")).clicked() {
+        let result = match state.editing_rule {
+            Some(r) => model.set_rule(p, l, r, &apps, selection),
+            None => model
+                .add_rule(p, l, &apps, selection)
+                .map(|r| state.editing_rule = Some(r)),
+        };
+        state.error = result.err();
+    }
+    if state.editing_rule.is_some()
+        && button(ui, Kind::Secondary, None, i18n.get("new-rule")).clicked()
+    {
+        start_new_rule(state);
+    }
+    let display = icons.tile(ui.ctx(), IconKind::Display);
+    if button(
+        ui,
+        Kind::Secondary,
+        Some(&display),
+        i18n.get("mark-dynamic"),
+    )
+    .clicked()
+    {
+        state.error = model.set_dynamic_zone(p, l, Some(selection)).err();
+    }
+    if layout.dynamic_zone.is_some()
+        && button(ui, Kind::Secondary, None, i18n.get("clear-dynamic")).clicked()
+    {
+        state.error = model.set_dynamic_zone(p, l, None).err();
+    }
+    if let Some(r) = state.editing_rule {
+        ui.add_space(12.0);
+        if button(ui, Kind::Danger, None, i18n.get("delete")).clicked() {
+            state.error = model.delete_rule(p, l, r).err();
+            clear_selection(state);
+        }
+    }
+}
+
+/// The names of a rule's apps without repeats: `["com.microsoft.VSCode", "code.exe",
+/// "code"]` is just "Code" (its aliases for other systems read the same).
+fn display_names(state: &State, apps: &[String]) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for app in apps {
+        let name = app_name(state, app);
+        if !names.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
+            names.push(name);
+        }
+    }
+    names
+}
+
+/// A readable name for an app id: the running app's name if known.
+fn app_name(state: &State, app: &str) -> String {
+    state
+        .running
+        .iter()
+        .find(|(id, _)| id.eq_ignore_ascii_case(app))
+        .map(|(_, name)| name.clone())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| short_app(app))
 }
 
 /// Draws one display with its grid, rules, dynamic zone and selection, and handles the
@@ -334,6 +514,7 @@ fn display_canvas(
     canvas: Canvas,
     size: egui::Vec2,
     dynamic_label: &str,
+    icons: &mut Icons,
 ) -> Option<(Target, Placement)> {
     let (response, painter) = ui.allocate_painter(size, egui::Sense::click_and_drag());
     let canvas = Canvas {
@@ -429,18 +610,43 @@ fn display_canvas(
             3.0,
             egui::Stroke::new(if dragged { 2.5_f32 } else { 1.0_f32 }, color),
         );
-        let label = layout.rules[*i]
-            .apps
-            .first()
-            .map(|a| short_app(a))
-            .unwrap_or_default();
-        painter.text(
-            r.center(),
-            egui::Align2::CENTER_CENTER,
-            label,
-            egui::FontId::proportional(12.0),
-            egui::Color32::WHITE,
-        );
+        let first = layout.rules[*i].apps.first().cloned().unwrap_or_default();
+        let label = short_app(&first);
+        // The app's icon above its name, when the zone is big enough for both.
+        let icon = (r.height() > 52.0 && r.width() > 44.0)
+            .then(|| icons.app(ui.ctx(), &first))
+            .flatten();
+        match icon {
+            Some(tex) => {
+                let side = (r.height() * 0.4).min(r.width() * 0.5).min(40.0);
+                let icon_rect = egui::Rect::from_center_size(
+                    r.center() - egui::vec2(0.0, 9.0),
+                    egui::vec2(side, side),
+                );
+                painter.image(
+                    tex.id(),
+                    icon_rect,
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    egui::Color32::WHITE,
+                );
+                painter.text(
+                    egui::pos2(r.center().x, icon_rect.bottom() + 9.0),
+                    egui::Align2::CENTER_CENTER,
+                    label,
+                    egui::FontId::proportional(12.0),
+                    egui::Color32::WHITE,
+                );
+            }
+            None => {
+                painter.text(
+                    r.center(),
+                    egui::Align2::CENTER_CENTER,
+                    label,
+                    egui::FontId::proportional(12.0),
+                    egui::Color32::WHITE,
+                );
+            }
+        }
     }
 
     if state.item_drag.is_none() {
@@ -505,7 +711,12 @@ fn display_canvas(
                         preview: zone,
                     });
                 }
-                None => state.drag_from = Some((id.to_string(), canvas.cell_at(pos))),
+                // Drawing on free cells always starts a new rule, even if a rule was
+                // selected before (otherwise "Apply" would move that rule instead).
+                None => {
+                    start_new_rule(state);
+                    state.drag_from = Some((id.to_string(), canvas.cell_at(pos)));
+                }
             }
         }
     }
@@ -546,8 +757,7 @@ fn display_canvas(
             match rules.iter().rev().find(|(_, z)| inside(z.zone())) {
                 Some((i, z)) => select_rule(state, *i, z.clone(), &layout.rules[*i].apps),
                 None => {
-                    state.editing_rule = None;
-                    state.apps.clear();
+                    start_new_rule(state);
                     state.selection = Some(Placement::new(id, Zone::new(col, row, 1, 1)));
                 }
             }
@@ -583,30 +793,69 @@ fn drag_preview(drag: &ItemDrag, pos: egui::Pos2, own: &Canvas, all: &[Canvas]) 
 }
 
 /// The rules of the layout as a clickable list (also handy when rules overlap).
-fn rules_list(ui: &mut egui::Ui, state: &mut State, layout: &Layout) {
-    ui.add_space(8.0);
-    for (i, rule) in layout.rules.iter().enumerate() {
-        ui.horizontal(|ui| {
-            let (r, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
-            ui.painter().rect_filled(r, 2.0, rule_color(i));
-            let z = &rule.zone;
-            let text = format!(
-                "{}  ->  {} · {},{} · {}×{}",
-                rule.apps.join(", "),
-                z.display,
-                z.col,
-                z.row,
-                z.w,
-                z.h
-            );
-            if ui
-                .selectable_label(state.editing_rule == Some(i), text)
+fn rules_list(
+    ui: &mut egui::Ui,
+    i18n: &I18n,
+    state: &mut State,
+    layout: &Layout,
+    icons: &mut Icons,
+) {
+    if layout.rules.is_empty() {
+        return;
+    }
+    theme::card(ui, Some(&i18n.get("rules-title")), |ui| {
+        for (i, rule) in layout.rules.iter().enumerate() {
+            if i > 0 {
+                theme::divider(ui);
+            }
+            let selected = state.editing_rule == Some(i);
+            let row = ui.horizontal(|ui| {
+                let (r, _) = ui.allocate_exact_size(egui::vec2(4.0, 34.0), egui::Sense::hover());
+                ui.painter().rect_filled(r, 2.0, rule_color(i));
+                // One icon: the first alias the system knows.
+                if let Some(tex) = rule.apps.iter().find_map(|app| icons.app(ui.ctx(), app)) {
+                    ui.add(egui::Image::new(&tex).fit_to_exact_size(egui::Vec2::splat(26.0)));
+                }
+                // Name on top (cut with "…" if needed), its zone underneath.
+                ui.vertical(|ui| {
+                    let text = egui::RichText::new(display_names(state, &rule.apps).join(", "));
+                    let text = if selected { text.strong() } else { text };
+                    ui.add(egui::Label::new(text).truncate());
+                    let z = &rule.zone;
+                    let zone = format!(
+                        "{} · col {} · {} {} · {}×{}",
+                        z.display,
+                        z.col,
+                        i18n.get("grid-rows").to_lowercase(),
+                        z.row,
+                        z.w,
+                        z.h
+                    );
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(zone).small().color(theme::subtle(ui)),
+                        )
+                        .truncate(),
+                    );
+                });
+            });
+            let response = row.response.interact(egui::Sense::click());
+            if response
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
                 .clicked()
             {
                 select_rule(state, i, rule.zone.clone(), &rule.apps);
             }
-        });
-    }
+        }
+    });
+}
+
+/// Forgets the selected rule so that "Apply" creates a new one.
+fn start_new_rule(state: &mut State) {
+    state.editing_rule = None;
+    state.apps.clear();
+    state.new_app.clear();
+    state.error = None;
 }
 
 fn select_rule(state: &mut State, index: usize, zone: Placement, apps: &[String]) {
@@ -654,6 +903,21 @@ fn refresh_running(state: &mut State) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn starting_a_new_rule_forgets_the_selected_one() {
+        let mut state = State::default();
+        select_rule(
+            &mut state,
+            2,
+            Placement::new("lg43", Zone::new(0, 0, 4, 4)),
+            &["com.microsoft.VSCode".to_string()],
+        );
+        assert_eq!(state.editing_rule, Some(2));
+        start_new_rule(&mut state);
+        assert_eq!(state.editing_rule, None);
+        assert!(state.apps.is_empty(), "the new rule starts without apps");
+    }
 
     #[test]
     fn short_names() {

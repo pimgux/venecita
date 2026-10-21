@@ -17,6 +17,10 @@ For a complete setup, see [`examples/config.toml`](../examples/config.toml).
 | `launch_at_login` | `false` | Start Venecita Dock when you log in |
 | `ignore` | `[]` | Apps that Venecita never moves |
 
+`auto_arrange` (default `false`): when you move a window out of its zone, Venecita puts it
+back as soon as you let go of it. Also available as the "Arrange automatically" check in
+the tray menu.
+
 ## `[focus]`
 
 | Key | Default | Description |

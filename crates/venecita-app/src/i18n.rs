@@ -48,6 +48,9 @@ pub enum Text {
     PermissionMissing,
     ConfigError,
     HotkeysUnavailable,
+    Arrange,
+    AutoArrange,
+    Resume,
 }
 
 /// The text for `key` in `lang`.
@@ -78,8 +81,14 @@ pub fn tr(lang: Lang, key: Text) -> &'static str {
         (Lang::Es, ReloadConfig) => "Recargar configuración",
         (Lang::En, ShowLogs) => "Show logs",
         (Lang::Es, ShowLogs) => "Ver registros",
-        (Lang::En, Quit) => "Quit Venecita Dock",
-        (Lang::Es, Quit) => "Salir de Venecita Dock",
+        (Lang::En, Quit) => "Quit",
+        (Lang::Es, Quit) => "Salir",
+        (Lang::En, Arrange) => "Arrange windows",
+        (Lang::Es, Arrange) => "Ordenar ventanas",
+        (Lang::En, AutoArrange) => "Arrange automatically",
+        (Lang::Es, AutoArrange) => "Ordenar automáticamente",
+        (Lang::En, Resume) => "Resume",
+        (Lang::Es, Resume) => "Reanudar",
         (Lang::En, PermissionMissing) => "⚠ Grant Accessibility permission…",
         (Lang::Es, PermissionMissing) => "⚠ Dar permiso de Accesibilidad…",
         (Lang::En, ConfigError) => "⚠ Configuration error (see logs)",

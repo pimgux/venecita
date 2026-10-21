@@ -1010,3 +1010,43 @@ fn refocusing_a_known_window_respects_where_the_user_put_it() {
     desk.focus(code); // re-read on focus: same kind, so nothing moves
     assert_eq!(desk.frame(code), moved);
 }
+
+// --- Automatic arranging --------------------------------------------------------------------
+
+#[test]
+fn only_the_users_moves_count_for_automatic_arranging() {
+    let mut desk = Desk::new(setups::home_open());
+    let code = desk.open(VSCODE);
+    let placed = desk.frame(code);
+    let engine = desk.driver.engine();
+    assert!(
+        !engine.is_user_move(code, placed),
+        "Venecita's own placement"
+    );
+    assert!(engine.is_user_move(code, Rect::new(500.0, 400.0, 900.0, 700.0)));
+
+    // Windows Venecita leaves alone never trigger it.
+    let calc = desk.open("com.apple.calculator"); // ignored in the example config
+    assert!(!desk
+        .driver
+        .engine()
+        .is_user_move(calc, Rect::new(10.0, 10.0, 300.0, 300.0)));
+
+    // Nor does focus mode resizing the focused window.
+    desk.focus(code);
+    desk.driver.on_action(Action::FocusModeToggle);
+    assert!(!desk.driver.engine().is_user_move(code, desk.frame(code)));
+}
+
+#[test]
+fn arranging_puts_a_moved_window_back() {
+    let mut desk = Desk::new(setups::home_open());
+    let code = desk.open(VSCODE);
+    let home = desk.frame(code);
+    desk.fake
+        .user_move(code, Rect::new(2000.0, 900.0, 800.0, 600.0));
+    desk.pump();
+    // What automatic arranging runs once the user lets go.
+    desk.driver.on_action(Action::RelayoutAll);
+    assert_eq!(desk.frame(code), home);
+}

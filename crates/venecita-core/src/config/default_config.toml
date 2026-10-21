@@ -13,6 +13,7 @@ language = "auto"          # "auto", "en" or "es"
 grid = { cols = 8, rows = 4 }
 gap = 8                    # points between windows and around the screen edges
 launch_at_login = false
+auto_arrange = false       # put windows back in their zone when you move them away
 ignore = []                # apps Venecita never moves, e.g. ["com.apple.calculator"]
 
 [focus]

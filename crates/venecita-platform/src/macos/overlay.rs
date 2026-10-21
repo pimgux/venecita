@@ -23,21 +23,23 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use objc2::rc::Retained;
-use objc2::runtime::NSObject;
+use objc2::runtime::{AnyObject, NSObject};
 use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
-    NSAppearance, NSAppearanceCustomization, NSAppearanceNameDarkAqua, NSAutoresizingMaskOptions,
-    NSBackingStoreType, NSColor, NSControlSize, NSNormalWindowLevel, NSPanel, NSScreen,
-    NSSegmentStyle, NSSegmentSwitchTracking, NSSegmentedControl, NSWindowCollectionBehavior,
-    NSWindowOrderingMode, NSWindowStyleMask,
+    NSAutoresizingMaskOptions, NSBackingStoreType, NSColor, NSControlSize, NSNormalWindowLevel,
+    NSPanel, NSScreen, NSSegmentStyle, NSSegmentSwitchTracking, NSSegmentedControl, NSView,
+    NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView,
+    NSWindowCollectionBehavior, NSWindowOrderingMode, NSWindowStyleMask,
 };
 use objc2_core_graphics::{CGDisplayBounds, CGMainDisplayID};
 use objc2_foundation::{NSObjectProtocol, NSPoint, NSRect, NSSize, NSString};
 
 use crate::{EventSink, PlatformEvent, Rect, TabBar, WindowId};
 
-/// Opacity of the black backing behind the tabs, so they read well over any window.
-const TAB_BAR_BACKGROUND: f64 = 0.5;
+/// Corner radius of a tab bar: the same as a macOS window's.
+const TAB_BAR_RADIUS: f64 = 9.0;
+/// Space between a tab bar's edge and its tabs.
+const TAB_BAR_INSET: f64 = 3.0;
 
 /// The event sink shared between the platform and the tab bar targets.
 pub(super) type SharedSink = Rc<RefCell<Option<EventSink>>>;
@@ -94,6 +96,23 @@ struct BarView {
     target: Retained<TabTarget>,
     /// Window number of the zone's active window; the bar is kept just above it.
     above: isize,
+}
+
+/// Rounds a view's corners and gives it the thin border macOS windows have.
+fn round_corners(view: &NSView, radius: f64) {
+    view.setWantsLayer(true);
+    let border = NSColor::separatorColor().CGColor();
+    // SAFETY: a layer-backed view has a CALayer; these are documented CALayer setters with
+    // their exact argument types (CGFloat, BOOL, CGColorRef).
+    unsafe {
+        let layer: Option<Retained<AnyObject>> = msg_send![view, layer];
+        if let Some(layer) = layer {
+            let _: () = msg_send![&*layer, setCornerRadius: radius];
+            let _: () = msg_send![&*layer, setMasksToBounds: true];
+            let _: () = msg_send![&*layer, setBorderWidth: 0.5f64];
+            let _: () = msg_send![&*layer, setBorderColor: &*border];
+        }
+    }
 }
 
 /// The system-wide window number of a window (what `orderWindow:relativeTo:` expects).
@@ -164,26 +183,33 @@ impl TabBars {
         // only on its windows' Space: on any other Space there is no window to stay just
         // above, so it would cover everything there.
         let panel = overlay_panel(mtm, frame, false);
-        // A half-transparent dark backing, and the dark appearance so the labels are light
-        // in both light and dark mode.
-        panel.setBackgroundColor(Some(&NSColor::colorWithCalibratedWhite_alpha(
-            0.0,
-            TAB_BAR_BACKGROUND,
-        )));
-        // SAFETY: reading an AppKit constant.
-        if let Some(dark) = NSAppearance::appearanceNamed(unsafe { NSAppearanceNameDarkAqua }) {
-            panel.setAppearance(Some(&dark));
-        }
+        // Shaped like a window: the shadow follows the rounded backing below.
+        panel.setHasShadow(true);
 
+        let sizable = NSAutoresizingMaskOptions::ViewWidthSizable
+            | NSAutoresizingMaskOptions::ViewHeightSizable;
         let bounds = NSRect::new(NSPoint::new(0.0, 0.0), frame.size);
-        let control = NSSegmentedControl::initWithFrame(NSSegmentedControl::alloc(mtm), bounds);
-        control.setAutoresizingMask(
-            NSAutoresizingMaskOptions::ViewWidthSizable
-                | NSAutoresizingMaskOptions::ViewHeightSizable,
+        // The material of a window's title bar, which follows light and dark mode.
+        let backing = NSVisualEffectView::initWithFrame(NSVisualEffectView::alloc(mtm), bounds);
+        backing.setMaterial(NSVisualEffectMaterial::Titlebar);
+        backing.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+        // Venecita is never the active app; keep the material vivid anyway.
+        backing.setState(NSVisualEffectState::Active);
+        backing.setAutoresizingMask(sizable);
+        round_corners(&backing, TAB_BAR_RADIUS);
+
+        let inset = NSRect::new(
+            NSPoint::new(TAB_BAR_INSET, TAB_BAR_INSET),
+            NSSize::new(
+                (frame.size.width - 2.0 * TAB_BAR_INSET).max(1.0),
+                (frame.size.height - 2.0 * TAB_BAR_INSET).max(1.0),
+            ),
         );
+        let control = NSSegmentedControl::initWithFrame(NSSegmentedControl::alloc(mtm), inset);
+        control.setAutoresizingMask(sizable);
         control.setSegmentStyle(NSSegmentStyle::Automatic);
         control.setTrackingMode(NSSegmentSwitchTracking::SelectOne);
-        if frame.size.height < 22.0 {
+        if frame.size.height < 26.0 {
             control.setControlSize(NSControlSize::Small);
         }
 
@@ -193,7 +219,8 @@ impl TabBars {
             control.setTarget(Some(&target));
             control.setAction(Some(sel!(tabClicked:)));
         }
-        panel.setContentView(Some(&control));
+        backing.addSubview(&control);
+        panel.setContentView(Some(&backing));
         BarView {
             panel,
             control,
@@ -213,7 +240,8 @@ impl TabBars {
 
         let count = bar.tabs.len();
         view.control.setSegmentCount(count as isize);
-        let width = ((frame.size.width - 4.0) / count.max(1) as f64).max(20.0);
+        let width =
+            ((frame.size.width - 2.0 * TAB_BAR_INSET - 4.0) / count.max(1) as f64).max(20.0);
         for (i, tab) in bar.tabs.iter().enumerate() {
             let i = i as isize;
             let label = NSString::from_str(&tab.label);

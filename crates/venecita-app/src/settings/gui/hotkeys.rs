@@ -1,11 +1,13 @@
-//! The "Shortcuts" tab: every binding with a key-capture field and conflict warnings.
+//! The "Shortcuts" tab: every binding with its translated name and description, the keys
+//! drawn as key caps, key capture and conflict warnings.
 
 use eframe::egui;
 use venecita_core::config::default_hotkeys;
 use venecita_core::Hotkey;
 
+use super::theme::{self, Kind};
 use crate::intl::I18n;
-use crate::settings::keys::{action_label, capture, conflicts, HeldModifiers};
+use crate::settings::keys::{action_id, action_text, capture, conflicts, HeldModifiers};
 use crate::settings::model::SettingsModel;
 
 #[derive(Default)]
@@ -18,8 +20,8 @@ pub(super) struct State {
 }
 
 pub(super) fn show(ui: &mut egui::Ui, model: &mut SettingsModel, i18n: &I18n, state: &mut State) {
-    ui.heading(i18n.get("hotkeys-title"));
-    ui.label(egui::RichText::new(i18n.get("capture-hint")).weak());
+    theme::page_title(ui, i18n.get("hotkeys-title"));
+    ui.label(egui::RichText::new(i18n.get("capture-hint")).color(theme::subtle(ui)));
     ui.add_space(6.0);
 
     // A key press while capturing (unless the fallback text field has the focus).
@@ -56,66 +58,63 @@ pub(super) fn show(ui: &mut egui::Ui, model: &mut SettingsModel, i18n: &I18n, st
 
     let hotkeys = model.config().hotkeys.clone();
     let clashing = conflicts(&hotkeys);
-    let mut rows: Vec<(String, String)> = hotkeys
+    // Grouped by action, then by name ("Move left", "Move right"…).
+    let mut rows: Vec<(String, String, String, String)> = hotkeys
         .iter()
-        .map(|(k, spec)| (action_label(spec), k.clone()))
+        .map(|(key, spec)| {
+            let (name, desc) = action_text(i18n, &spec.0);
+            (action_id(&spec.0), name, desc, key.clone())
+        })
         .collect();
     rows.sort();
 
     let mut remove = None;
-    egui::Grid::new("hotkeys")
-        .num_columns(3)
-        .striped(true)
-        .spacing([24.0, 6.0])
-        .show(ui, |ui| {
-            ui.strong(i18n.get("col-action"));
-            ui.strong(i18n.get("col-shortcut"));
-            ui.label("");
-            ui.end_row();
-            for (label, key) in &rows {
-                ui.label(label);
-                ui.horizontal(|ui| {
-                    if state.capturing.as_deref() == Some(key.as_str()) {
-                        ui.add(egui::Button::new(i18n.get("press-keys")).selected(true));
-                        let edit = ui.add(
-                            egui::TextEdit::singleline(&mut state.typed)
-                                .hint_text("ctrl+alt+k")
-                                .desired_width(140.0),
-                        );
-                        if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                            match state.typed.parse::<Hotkey>() {
-                                Ok(h) => rebind(model, state, i18n, key, &h.to_string()),
-                                Err(e) => state.error = Some(e.to_string()),
-                            }
-                        }
-                        if ui.button(i18n.get("cancel")).clicked() {
-                            state.capturing = None;
-                        }
-                    } else {
-                        let valid = key.parse::<Hotkey>().is_ok();
-                        let mut text = egui::RichText::new(key).monospace();
-                        if !valid || clashing.contains(key) {
-                            text = text.color(ui.visuals().error_fg_color);
-                        }
-                        if ui.button(text).clicked() {
-                            state.capturing = Some(key.clone());
-                            state.typed.clear();
-                            state.error = None;
-                        }
-                        if clashing.contains(key) {
-                            ui.colored_label(
-                                ui.visuals().error_fg_color,
-                                i18n.get("conflict-warning"),
-                            );
-                        }
-                    }
-                });
-                if ui.small_button(i18n.get("remove")).clicked() {
+    theme::card(ui, None, |ui| {
+        for (i, (_, name, desc, key)) in rows.iter().enumerate() {
+            if i > 0 {
+                theme::divider(ui);
+            }
+            theme::row(ui, name, Some(desc), |ui| {
+                if ui
+                    .add(egui::Button::new(egui::RichText::new("×").strong()).frame(false))
+                    .on_hover_text(i18n.get("remove"))
+                    .clicked()
+                {
                     remove = Some(key.clone());
                 }
-                ui.end_row();
-            }
-        });
+                if state.capturing.as_deref() == Some(key.as_str()) {
+                    if theme::button(ui, Kind::Secondary, None, i18n.get("cancel")).clicked() {
+                        state.capturing = None;
+                    }
+                    let edit = ui.add(
+                        egui::TextEdit::singleline(&mut state.typed)
+                            .hint_text("ctrl+alt+k")
+                            .desired_width(130.0),
+                    );
+                    if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        match state.typed.parse::<Hotkey>() {
+                            Ok(h) => rebind(model, state, i18n, key, &h.to_string()),
+                            Err(e) => state.error = Some(e.to_string()),
+                        }
+                    }
+                    theme::button(ui, Kind::Primary, None, i18n.get("press-keys"));
+                } else {
+                    let bad = key.parse::<Hotkey>().is_err() || clashing.contains(key);
+                    if keycaps(ui, key, bad)
+                        .on_hover_text(i18n.get("edit"))
+                        .clicked()
+                    {
+                        state.capturing = Some(key.clone());
+                        state.typed.clear();
+                        state.error = None;
+                    }
+                    if clashing.contains(key) {
+                        ui.colored_label(ui.visuals().error_fg_color, i18n.get("conflict-warning"));
+                    }
+                }
+            });
+        }
+    });
 
     if let Some(key) = remove {
         let mut map = hotkeys.clone();
@@ -123,13 +122,74 @@ pub(super) fn show(ui: &mut egui::Ui, model: &mut SettingsModel, i18n: &I18n, st
         state.error = model.set_hotkeys(&map).err();
     }
 
-    ui.add_space(8.0);
-    if ui.button(i18n.get("reset-hotkeys")).clicked() {
+    if theme::button(ui, Kind::Secondary, None, i18n.get("reset-hotkeys")).clicked() {
         state.error = model.set_hotkeys(&default_hotkeys()).err();
         state.capturing = None;
     }
     if let Some(e) = &state.error {
         ui.colored_label(ui.visuals().error_fg_color, e);
+    }
+}
+
+/// A shortcut drawn as key caps (`Ctrl` `Alt` `Left`). Clickable to change it.
+fn keycaps(ui: &mut egui::Ui, key: &str, error: bool) -> egui::Response {
+    let caps: Vec<String> = key.split('+').map(cap_label).collect();
+    let fill = ui.visuals().widgets.inactive.weak_bg_fill;
+    let text = if error {
+        ui.visuals().error_fg_color
+    } else {
+        ui.visuals().text_color()
+    };
+    let inner = egui::Frame::none()
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                for cap in &caps {
+                    egui::Frame::none()
+                        .fill(fill)
+                        .rounding(egui::Rounding::same(5.0))
+                        .inner_margin(egui::Margin::symmetric(7.0, 3.0))
+                        .show(ui, |ui| {
+                            ui.label(egui::RichText::new(cap).monospace().color(text));
+                        });
+                }
+            });
+        })
+        .response;
+    ui.interact(inner.rect, inner.id.with("caps"), egui::Sense::click())
+}
+
+/// How one part of a shortcut is written on its key cap.
+fn cap_label(part: &str) -> String {
+    let cmd = if cfg!(windows) { "Win" } else { "Cmd" };
+    match part {
+        "ctrl" => "Ctrl".into(),
+        "alt" => if cfg!(target_os = "macos") {
+            "Option"
+        } else {
+            "Alt"
+        }
+        .into(),
+        "shift" => "Shift".into(),
+        "cmd" => cmd.into(),
+        "bracketleft" => "[".into(),
+        "bracketright" => "]".into(),
+        "period" => ".".into(),
+        "comma" => ",".into(),
+        "minus" => "-".into(),
+        "equal" => "=".into(),
+        "slash" => "/".into(),
+        "backslash" => "\\".into(),
+        "semicolon" => ";".into(),
+        "quote" => "'".into(),
+        "backquote" => "`".into(),
+        other => {
+            let mut c = other.chars();
+            match c.next() {
+                Some(first) => first.to_uppercase().chain(c).collect(),
+                None => String::new(),
+            }
+        }
     }
 }
 

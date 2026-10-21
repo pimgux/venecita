@@ -58,12 +58,29 @@ pub fn read(path: &Path) -> Result<Config, String> {
 
 /// Sets `general.launch_at_login` in the file, keeping the user's comments and layout.
 pub fn set_launch_at_login(path: &Path, enabled: bool) -> Result<(), String> {
+    set_general_flag(path, "launch_at_login", enabled)
+}
+
+/// Sets `general.auto_arrange` in the file, keeping the user's comments and layout.
+pub fn set_auto_arrange(path: &Path, enabled: bool) -> Result<(), String> {
+    set_general_flag(path, "auto_arrange", enabled)
+}
+
+fn set_general_flag(path: &Path, key: &str, value: bool) -> Result<(), String> {
     let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| format!("{e}"))?;
     if !doc.contains_table("general") {
         doc["general"] = toml_edit::table();
     }
-    doc["general"]["launch_at_login"] = toml_edit::value(enabled);
+    // Keep the end-of-line comment of the old value, if any.
+    let mut item = toml_edit::value(value);
+    if let (Some(old), Some(new)) = (
+        doc["general"].get(key).and_then(|i| i.as_value()),
+        item.as_value_mut(),
+    ) {
+        *new.decor_mut() = old.decor().clone();
+    }
+    doc["general"][key] = item;
     write_like(path, &text, &doc)
 }
 

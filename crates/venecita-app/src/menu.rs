@@ -3,8 +3,13 @@
 //! Building the menu is separated from drawing it so its contents can be unit tested;
 //! `tray.rs` turns these entries into real menu items.
 
+use std::collections::BTreeMap;
+
+use venecita_core::action::ActionSpec;
 use venecita_core::engine::Status;
 use venecita_core::Action;
+
+use crate::icons::IconKind;
 
 use crate::i18n::{tr, Lang, Text};
 
@@ -19,6 +24,8 @@ pub enum MenuCommand {
     RelayoutAll,
     /// Pause/resume.
     TogglePause,
+    /// Turn automatic arranging on or off (`general.auto_arrange`).
+    ToggleAutoArrange,
     /// Toggle launch at login.
     ToggleLaunchAtLogin,
     /// Open the settings window.
@@ -54,6 +61,7 @@ impl MenuCommand {
             ToggleAutoProfile,
             RelayoutAll,
             TogglePause,
+            ToggleAutoArrange,
             ToggleLaunchAtLogin,
             OpenSettings,
             OpenConfig,
@@ -101,6 +109,11 @@ pub enum MenuEntry {
         command: MenuCommand,
         /// Whether it can be clicked.
         enabled: bool,
+        /// Colored icon shown before the text.
+        icon: Option<IconKind>,
+        /// The keyboard shortcut for the same action (shown greyed on the right), in the
+        /// config syntax (`ctrl+alt+r`).
+        shortcut: Option<String>,
     },
     /// An item with a check mark.
     Check {
@@ -112,6 +125,17 @@ pub enum MenuEntry {
         checked: bool,
         /// Whether it can be clicked.
         enabled: bool,
+        /// The keyboard shortcut for the same action, if any.
+        shortcut: Option<String>,
+    },
+    /// A submenu.
+    Submenu {
+        /// Text.
+        text: String,
+        /// Colored icon shown before the text.
+        icon: Option<IconKind>,
+        /// Its entries.
+        entries: Vec<MenuEntry>,
     },
     /// A separator line.
     Separator,
@@ -126,14 +150,41 @@ pub struct AppFlags {
     pub config_error: bool,
     /// Launch at login is enabled.
     pub launch_at_login: bool,
+    /// Windows moved away are put back automatically (`general.auto_arrange`).
+    pub auto_arrange: bool,
     /// Shortcuts that could not be registered (taken by another app).
     pub hotkey_conflicts: Vec<String>,
 }
 
-/// Builds the menu.
-pub fn build(status: &Status, flags: &AppFlags, lang: Lang) -> Vec<MenuEntry> {
+/// The first shortcut bound to `action` in the `[hotkeys]` table.
+pub fn shortcut_for(hotkeys: &BTreeMap<String, ActionSpec>, action: &Action) -> Option<String> {
+    hotkeys
+        .iter()
+        .find(|(_, spec)| spec.0 == *action)
+        .map(|(key, _)| key.clone())
+}
+
+/// Builds the menu:
+///
+/// ```text
+/// (warnings, if any)
+/// Profile: Casa – Notebook abierta  ▸  ✓ Automatic · Casa · Trabajo …
+/// Arrange windows                      ⌃⌥R
+/// ✓ Arrange automatically
+/// Pause / Resume                       ⌃⌥⇧P
+/// ───
+/// Settings…
+/// Quit
+/// ```
+pub fn build(
+    status: &Status,
+    flags: &AppFlags,
+    lang: Lang,
+    hotkeys: &BTreeMap<String, ActionSpec>,
+) -> Vec<MenuEntry> {
     use MenuEntry::*;
     let t = |k| tr(lang, k).to_string();
+    let key = |action: Action| shortcut_for(hotkeys, &action);
     let mut m = Vec::new();
 
     if flags.permission_missing {
@@ -141,28 +192,32 @@ pub fn build(status: &Status, flags: &AppFlags, lang: Lang) -> Vec<MenuEntry> {
             text: t(Text::PermissionMissing),
             command: MenuCommand::OpenPermissionSettings,
             enabled: true,
+            icon: Some(IconKind::Warning),
+            shortcut: None,
         });
-        m.push(Separator);
     }
     if flags.config_error {
         m.push(Item {
             text: t(Text::ConfigError),
             command: MenuCommand::ShowLogs,
             enabled: true,
+            icon: Some(IconKind::Warning),
+            shortcut: None,
         });
-        m.push(Separator);
     }
-
     if !flags.hotkey_conflicts.is_empty() {
         m.push(Label(format!(
             "{} {}",
             t(Text::HotkeysUnavailable),
             flags.hotkey_conflicts.join(", ")
         )));
+    }
+    if !m.is_empty() {
         m.push(Separator);
     }
 
-    m.push(Label(match (&status.profile, &status.layout) {
+    // Profile: the active one in the title, the choice inside.
+    let title = match (&status.profile, &status.layout) {
         (Some(p), Some(l)) => {
             let manual = if status.manual {
                 format!(" {}", t(Text::ProfileManualSuffix))
@@ -172,70 +227,74 @@ pub fn build(status: &Status, flags: &AppFlags, lang: Lang) -> Vec<MenuEntry> {
             format!("{}: {p} – {l}{manual}", t(Text::ProfileActive))
         }
         _ => t(Text::NoProfile),
-    }));
-    m.push(Separator);
-
-    m.push(Label(t(Text::Profiles)));
-    m.push(Check {
-        text: t(Text::Automatic),
-        command: MenuCommand::ToggleAutoProfile,
-        checked: !status.manual,
-        enabled: true,
-    });
+    };
+    let mut profiles = vec![
+        Check {
+            text: t(Text::Automatic),
+            command: MenuCommand::ToggleAutoProfile,
+            checked: !status.manual,
+            enabled: true,
+            shortcut: key(Action::AutoProfile),
+        },
+        Separator,
+    ];
     for p in &status.profiles {
-        m.push(Check {
-            text: format!("    {}", p.name),
+        profiles.push(Check {
+            text: p.name.clone(),
             command: MenuCommand::Profile(p.name.clone()),
             checked: p.active,
             enabled: p.fits,
+            shortcut: key(Action::ActivateProfile {
+                name: p.name.clone(),
+            }),
         });
     }
-    m.push(Separator);
+    m.push(Submenu {
+        text: title,
+        icon: Some(IconKind::Profile),
+        entries: profiles,
+    });
 
     m.push(Item {
-        text: t(Text::RelayoutAll),
+        text: t(Text::Arrange),
         command: MenuCommand::RelayoutAll,
         enabled: !status.paused,
+        icon: Some(IconKind::Arrange),
+        shortcut: key(Action::RelayoutAll),
     });
     m.push(Check {
-        text: t(Text::Pause),
-        command: MenuCommand::TogglePause,
-        checked: status.paused,
+        text: t(Text::AutoArrange),
+        command: MenuCommand::ToggleAutoArrange,
+        checked: flags.auto_arrange,
         enabled: true,
+        shortcut: None,
+    });
+    let (pause_text, pause_icon) = if status.paused {
+        (Text::Resume, IconKind::Resume)
+    } else {
+        (Text::Pause, IconKind::Pause)
+    };
+    m.push(Item {
+        text: t(pause_text),
+        command: MenuCommand::TogglePause,
+        enabled: true,
+        icon: Some(pause_icon),
+        shortcut: key(Action::TogglePause),
     });
     m.push(Separator);
-
-    m.push(Check {
-        text: t(Text::LaunchAtLogin),
-        command: MenuCommand::ToggleLaunchAtLogin,
-        checked: flags.launch_at_login,
-        enabled: true,
-    });
     m.push(Item {
         text: t(Text::Settings),
         command: MenuCommand::OpenSettings,
         enabled: true,
+        icon: Some(IconKind::Settings),
+        shortcut: key(Action::OpenSettings),
     });
-    m.push(Item {
-        text: t(Text::OpenConfig),
-        command: MenuCommand::OpenConfig,
-        enabled: true,
-    });
-    m.push(Item {
-        text: t(Text::ReloadConfig),
-        command: MenuCommand::ReloadConfig,
-        enabled: true,
-    });
-    m.push(Item {
-        text: t(Text::ShowLogs),
-        command: MenuCommand::ShowLogs,
-        enabled: true,
-    });
-    m.push(Separator);
     m.push(Item {
         text: t(Text::Quit),
         command: MenuCommand::Quit,
         enabled: true,
+        icon: Some(IconKind::Quit),
+        shortcut: None,
     });
     m
 }
@@ -243,6 +302,7 @@ pub fn build(status: &Status, flags: &AppFlags, lang: Lang) -> Vec<MenuEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use venecita_core::config::default_hotkeys;
     use venecita_core::engine::ProfileStatus;
 
     fn status() -> Status {
@@ -267,6 +327,32 @@ mod tests {
         }
     }
 
+    fn menu(s: &Status, flags: &AppFlags, lang: Lang) -> Vec<MenuEntry> {
+        build(s, flags, lang, &default_hotkeys())
+    }
+
+    fn commands(entries: &[MenuEntry]) -> Vec<MenuCommand> {
+        entries
+            .iter()
+            .filter_map(|e| match e {
+                MenuEntry::Item { command, .. } | MenuEntry::Check { command, .. } => {
+                    Some(command.clone())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn profile_submenu(entries: &[MenuEntry]) -> (&String, &Vec<MenuEntry>) {
+        entries
+            .iter()
+            .find_map(|e| match e {
+                MenuEntry::Submenu { text, entries, .. } => Some((text, entries)),
+                _ => None,
+            })
+            .expect("a profile submenu")
+    }
+
     #[test]
     fn command_ids_round_trip() {
         for c in [
@@ -274,6 +360,7 @@ mod tests {
             MenuCommand::Quit,
             MenuCommand::ToggleLaunchAtLogin,
             MenuCommand::OpenSettings,
+            MenuCommand::ToggleAutoArrange,
         ] {
             assert_eq!(MenuCommand::from_id(&c.id()), Some(c));
         }
@@ -281,13 +368,41 @@ mod tests {
     }
 
     #[test]
-    fn shows_active_profile_and_disables_profiles_that_dont_fit() {
-        let m = build(&status(), &AppFlags::default(), Lang::Es);
+    fn the_menu_has_only_the_essentials() {
+        let m = menu(&status(), &AppFlags::default(), Lang::Es);
         assert_eq!(
-            m[0],
-            MenuEntry::Label("Perfil: Casa – Notebook abierta".into())
+            commands(&m),
+            vec![
+                MenuCommand::RelayoutAll,
+                MenuCommand::ToggleAutoArrange,
+                MenuCommand::TogglePause,
+                MenuCommand::OpenSettings,
+                MenuCommand::Quit,
+            ]
         );
-        let trabajo = m
+        assert!(matches!(
+            &m[0],
+            MenuEntry::Submenu {
+                icon: Some(IconKind::Profile),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn profiles_are_chosen_in_a_submenu() {
+        let m = menu(&status(), &AppFlags::default(), Lang::Es);
+        let (title, entries) = profile_submenu(&m);
+        assert_eq!(title, "Perfil: Casa – Notebook abierta");
+        assert!(matches!(
+            &entries[0],
+            MenuEntry::Check {
+                command: MenuCommand::ToggleAutoProfile,
+                checked: true,
+                ..
+            }
+        ));
+        let trabajo = entries
             .iter()
             .find(|e| matches!(e, MenuEntry::Check { command: MenuCommand::Profile(n), .. } if n == "Trabajo"))
             .unwrap();
@@ -302,53 +417,49 @@ mod tests {
     }
 
     #[test]
-    fn warnings_come_first() {
-        let flags = AppFlags {
-            permission_missing: true,
-            config_error: true,
-            launch_at_login: false,
-            hotkey_conflicts: vec!["ctrl+alt+f".into()],
-        };
-        let m = build(&status(), &flags, Lang::En);
-        assert!(matches!(
-            &m[0],
-            MenuEntry::Item {
-                command: MenuCommand::OpenPermissionSettings,
-                ..
-            }
-        ));
-        assert!(matches!(
-            &m[2],
-            MenuEntry::Item {
-                command: MenuCommand::ShowLogs,
-                ..
-            }
-        ));
+    fn items_show_their_shortcuts() {
+        let m = menu(&status(), &AppFlags::default(), Lang::En);
+        let arrange = m
+            .iter()
+            .find(|e| {
+                matches!(
+                    e,
+                    MenuEntry::Item {
+                        command: MenuCommand::RelayoutAll,
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        assert!(matches!(arrange, MenuEntry::Item { shortcut: Some(k), .. } if k == "ctrl+alt+r"));
         assert_eq!(
-            m[4],
-            MenuEntry::Label("⚠ Shortcuts in use by another app: ctrl+alt+f".into())
+            shortcut_for(&default_hotkeys(), &Action::FocusModeToggle).as_deref(),
+            Some("ctrl+alt+f")
         );
+        assert_eq!(shortcut_for(&BTreeMap::new(), &Action::RelayoutAll), None);
     }
 
     #[test]
-    fn no_profile_and_manual_and_paused() {
+    fn pause_turns_into_resume() {
         let mut s = status();
-        s.profile = None;
-        s.layout = None;
-        let m = build(&s, &AppFlags::default(), Lang::En);
-        assert_eq!(
-            m[0],
-            MenuEntry::Label("No profile fits these displays".into())
-        );
-
-        let mut s = status();
-        s.manual = true;
         s.paused = true;
-        let m = build(&s, &AppFlags::default(), Lang::En);
-        assert_eq!(
-            m[0],
-            MenuEntry::Label("Profile: Casa – Notebook abierta (manual)".into())
-        );
+        let m = menu(&s, &AppFlags::default(), Lang::En);
+        let pause = m
+            .iter()
+            .find(|e| {
+                matches!(
+                    e,
+                    MenuEntry::Item {
+                        command: MenuCommand::TogglePause,
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        assert!(matches!(
+            pause,
+            MenuEntry::Item { text, icon: Some(IconKind::Resume), .. } if text == "Resume"
+        ));
         assert!(m.iter().any(|e| matches!(
             e,
             MenuEntry::Item {
@@ -357,14 +468,70 @@ mod tests {
                 ..
             }
         )));
+    }
+
+    #[test]
+    fn auto_arrange_is_a_check() {
+        let flags = AppFlags {
+            auto_arrange: true,
+            ..Default::default()
+        };
+        let m = menu(&status(), &flags, Lang::En);
         assert!(m.iter().any(|e| matches!(
             e,
             MenuEntry::Check {
-                command: MenuCommand::TogglePause,
+                command: MenuCommand::ToggleAutoArrange,
                 checked: true,
                 ..
             }
         )));
+    }
+
+    #[test]
+    fn warnings_come_first() {
+        let flags = AppFlags {
+            permission_missing: true,
+            config_error: true,
+            hotkey_conflicts: vec!["ctrl+alt+f".into()],
+            ..Default::default()
+        };
+        let m = menu(&status(), &flags, Lang::En);
+        assert!(matches!(
+            &m[0],
+            MenuEntry::Item {
+                command: MenuCommand::OpenPermissionSettings,
+                ..
+            }
+        ));
+        assert!(matches!(
+            &m[1],
+            MenuEntry::Item {
+                command: MenuCommand::ShowLogs,
+                ..
+            }
+        ));
+        assert_eq!(
+            m[2],
+            MenuEntry::Label("⚠ Shortcuts in use by another app: ctrl+alt+f".into())
+        );
+        assert_eq!(m[3], MenuEntry::Separator);
+    }
+
+    #[test]
+    fn no_profile_and_manual() {
+        let mut s = status();
+        s.profile = None;
+        s.layout = None;
+        let m = menu(&s, &AppFlags::default(), Lang::En);
+        assert_eq!(profile_submenu(&m).0, "No profile fits these displays");
+
+        let mut s = status();
+        s.manual = true;
+        let m = menu(&s, &AppFlags::default(), Lang::En);
+        assert_eq!(
+            profile_submenu(&m).0,
+            "Profile: Casa – Notebook abierta (manual)"
+        );
     }
 
     #[test]
@@ -384,27 +551,5 @@ mod tests {
         let mut s = status();
         s.profile = None;
         assert_eq!(toggle_auto_profile(&s), None);
-    }
-
-    #[test]
-    fn automatic_is_checked_unless_a_profile_was_chosen() {
-        let auto_checked = |s: &Status| {
-            build(s, &AppFlags::default(), Lang::En)
-                .into_iter()
-                .any(|e| {
-                    matches!(
-                        e,
-                        MenuEntry::Check {
-                            command: MenuCommand::ToggleAutoProfile,
-                            checked: true,
-                            ..
-                        }
-                    )
-                })
-        };
-        let mut s = status();
-        assert!(auto_checked(&s));
-        s.manual = true;
-        assert!(!auto_checked(&s));
     }
 }

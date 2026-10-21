@@ -139,6 +139,11 @@ impl SettingsModel {
         self.set_general_scalar("launch_at_login", enabled);
     }
 
+    /// Enables or disables putting moved windows back automatically.
+    pub fn set_auto_arrange(&mut self, enabled: bool) {
+        self.set_general_scalar("auto_arrange", enabled);
+    }
+
     /// Replaces the list of ignored applications.
     pub fn set_ignore(&mut self, apps: &[String]) {
         self.set_general_scalar("ignore", string_array(apps));

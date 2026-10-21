@@ -6,7 +6,7 @@ use std::path::Path;
 use dispatch2::DispatchQueue;
 use objc2::MainThreadMarker;
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationOptions, NSApplicationActivationPolicy, NSBeep,
+    NSApplication, NSApplicationActivationOptions, NSApplicationActivationPolicy, NSBeep, NSEvent,
     NSRunningApplication,
 };
 use objc2_foundation::NSLocale;
@@ -83,6 +83,11 @@ pub fn bring_to_front(pid: u32) {
     if let Some(app) = NSRunningApplication::runningApplicationWithProcessIdentifier(pid as i32) {
         app.activateWithOptions(NSApplicationActivationOptions::ActivateAllWindows);
     }
+}
+
+/// Whether the primary mouse button is held (e.g. the user is still dragging a window).
+pub fn mouse_button_down() -> bool {
+    NSEvent::pressedMouseButtons() & 1 != 0
 }
 
 /// Black: the icon is a template image that macOS tints for the menu bar.

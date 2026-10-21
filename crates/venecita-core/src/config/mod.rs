@@ -155,6 +155,8 @@ pub struct General {
     pub gap: f64,
     /// Start Venecita Dock when the user logs in.
     pub launch_at_login: bool,
+    /// Put windows back in their zone shortly after the user moves them elsewhere.
+    pub auto_arrange: bool,
     /// Applications that are never moved (same matching rules as `rules.apps`).
     pub ignore: Vec<String>,
 }
@@ -166,6 +168,7 @@ impl Default for General {
             grid: GridSize::default(),
             gap: 8.0,
             launch_at_login: false,
+            auto_arrange: false,
             ignore: Vec::new(),
         }
     }

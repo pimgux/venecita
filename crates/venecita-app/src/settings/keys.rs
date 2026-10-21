@@ -3,8 +3,11 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use fluent::FluentArgs;
 use venecita_core::action::ActionSpec;
-use venecita_core::Hotkey;
+use venecita_core::{Action, Hotkey};
+
+use crate::intl::I18n;
 
 /// Modifier keys held during a key press.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -95,6 +98,53 @@ pub fn action_label(spec: &ActionSpec) -> String {
     }
 }
 
+/// The name and a one-line description of an action, in the interface language:
+/// ("Move left", "Moves the focused window one cell left, keeping its size.").
+pub fn action_text(i18n: &I18n, action: &Action) -> (String, String) {
+    let id = action_id(action);
+    let mut args = FluentArgs::new();
+    let word = |prefix: &str, value: String| i18n.get(&format!("{prefix}-{value}"));
+    match action {
+        Action::MoveZone { dir } => {
+            args.set("dir", word("dir", snake(dir)));
+        }
+        Action::Grow { dir } | Action::Shrink { dir } => {
+            args.set("edge", word("edge", snake(dir)));
+        }
+        Action::MoveToDisplay { target } => {
+            args.set("target", word("target", snake(target)));
+        }
+        Action::ActivateProfile { name } => {
+            args.set("name", name.clone());
+        }
+        _ => {}
+    }
+    (
+        i18n.get_args(&format!("action-{id}"), &args),
+        i18n.get_args(&format!("action-{id}-desc"), &args),
+    )
+}
+
+/// The config name of an action (`move_zone`, `pin_here`…).
+pub fn action_id(action: &Action) -> String {
+    match toml::Value::try_from(action) {
+        Ok(toml::Value::Table(t)) => t
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        _ => String::new(),
+    }
+}
+
+/// The config spelling of a parameter value (`left`, `next`).
+fn snake<T: serde::Serialize>(value: &T) -> String {
+    match toml::Value::try_from(value) {
+        Ok(toml::Value::String(s)) => s,
+        _ => String::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,6 +220,49 @@ mod tests {
             found,
             BTreeSet::from(["ctrl+alt+f".to_string(), "option+ctrl+f".to_string()])
         );
+    }
+
+    #[test]
+    fn every_action_has_a_name_and_description_in_both_languages() {
+        use crate::i18n::Lang;
+        let mut actions: Vec<Action> = default_hotkeys().into_values().map(|s| s.0).collect();
+        actions.extend([
+            Action::ActivateProfile {
+                name: "Casa".into(),
+            },
+            Action::AutoProfile,
+            Action::TogglePause,
+            Action::OpenSettings,
+            Action::FocusWindow {
+                id: venecita_core::window::WindowId(1),
+            },
+        ]);
+        for lang in [Lang::En, Lang::Es] {
+            let i18n = I18n::new(lang);
+            for action in &actions {
+                let (name, desc) = action_text(&i18n, action);
+                for text in [&name, &desc] {
+                    assert!(
+                        !text.starts_with("action-") && !text.contains('{') && !text.is_empty(),
+                        "{lang:?} {action:?}: {text:?}"
+                    );
+                }
+            }
+        }
+        let es = I18n::new(Lang::Es);
+        let left = Action::MoveZone {
+            dir: venecita_core::Direction::Left,
+        };
+        assert_eq!(action_text(&es, &left).0, "Mover a la izquierda");
+        let grow = Action::Grow {
+            dir: venecita_core::Direction::Up,
+        };
+        assert_eq!(action_text(&es, &grow).0, "Agrandar (borde superior)");
+        let en = I18n::new(Lang::En);
+        let profile = Action::ActivateProfile {
+            name: "Casa".into(),
+        };
+        assert_eq!(action_text(&en, &profile).0, "Profile “Casa”");
     }
 
     #[test]

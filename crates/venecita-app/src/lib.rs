@@ -7,6 +7,7 @@ pub mod config_file;
 pub mod driver;
 pub mod hotkeys;
 pub mod i18n;
+pub mod icons;
 pub mod intl;
 pub mod menu;
 pub mod paths;
