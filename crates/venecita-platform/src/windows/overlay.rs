@@ -13,14 +13,18 @@ use std::ptr::{null, null_mut};
 use std::rc::Rc;
 
 use windows_sys::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows_sys::Win32::Graphics::Dwm::{
+    DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+};
 use windows_sys::Win32::Graphics::Gdi::{
-    BeginPaint, CreateFontW, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint, FillRect,
-    GetStockObject, InvalidateRect, SelectObject, SetBkMode, SetTextColor, BLACK_BRUSH,
-    CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, DT_CENTER,
+    BeginPaint, CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint,
+    FillRect, GetStockObject, InvalidateRect, RoundRect, SelectObject, SetBkMode, SetTextColor,
+    BLACK_BRUSH, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, DT_CENTER,
     DT_END_ELLIPSIS, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, FF_DONTCARE, FW_NORMAL,
-    OUT_DEFAULT_PRECIS, PAINTSTRUCT, TRANSPARENT,
+    OUT_DEFAULT_PRECIS, PAINTSTRUCT, PS_SOLID, TRANSPARENT,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetWindow, GetWindowLongPtrW,
     RegisterClassW, SetLayeredWindowAttributes, SetWindowLongPtrW, SetWindowPos, ShowWindow,
@@ -36,19 +40,67 @@ use crate::{EventSink, PlatformEvent, Rect, TabBar, WindowId};
 /// The event sink shared between the platform and the tab bars.
 pub(super) type SharedSink = Rc<RefCell<Option<EventSink>>>;
 
-/// Opacity of the tab bars (0–255): dark enough to read over any window.
-const BAR_ALPHA: u8 = 235;
 const BAR_CLASS: &str = "VenecitaDockTabBar";
 const DIM_CLASS: &str = "VenecitaDockDim";
 
 const fn rgb(r: u8, g: u8, b: u8) -> COLORREF {
     r as u32 | (g as u32) << 8 | (b as u32) << 16
 }
-const BACKGROUND: COLORREF = rgb(24, 24, 24);
-const ACTIVE: COLORREF = rgb(68, 68, 68);
-const ACCENT: COLORREF = rgb(0, 120, 215);
-const SEPARATOR: COLORREF = rgb(64, 64, 64);
-const TEXT: COLORREF = rgb(235, 235, 235);
+
+/// The tab bar's colors, after Windows 11's own tab and segmented controls.
+struct Palette {
+    background: COLORREF,
+    active: COLORREF,
+    border: COLORREF,
+    separator: COLORREF,
+    text: COLORREF,
+    accent: COLORREF,
+}
+
+const LIGHT: Palette = Palette {
+    background: rgb(243, 243, 243),
+    active: rgb(255, 255, 255),
+    border: rgb(229, 229, 229),
+    separator: rgb(218, 218, 218),
+    text: rgb(26, 26, 26),
+    accent: rgb(0, 95, 184),
+};
+
+const DARK: Palette = Palette {
+    background: rgb(32, 32, 32),
+    active: rgb(56, 56, 56),
+    border: rgb(64, 64, 64),
+    separator: rgb(58, 58, 58),
+    text: rgb(255, 255, 255),
+    accent: rgb(96, 205, 255),
+};
+
+/// Light or dark, as the user set Windows' app mode.
+fn palette() -> &'static Palette {
+    let key: Vec<u16> = "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize\0"
+        .encode_utf16()
+        .collect();
+    let value: Vec<u16> = "AppsUseLightTheme\0".encode_utf16().collect();
+    let mut light = 1u32;
+    let mut size = std::mem::size_of::<u32>() as u32;
+    // SAFETY: the DWORD buffer and its size are passed.
+    let err = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            key.as_ptr(),
+            value.as_ptr(),
+            RRF_RT_REG_DWORD,
+            null_mut(),
+            (&mut light as *mut u32).cast(),
+            &mut size,
+        )
+    };
+    if err != 0 || light != 0 {
+        &LIGHT
+    } else {
+        &DARK
+    }
+}
 
 /// What a bar window draws and reports clicks to. Owned by [`Bar`], reached from the
 /// window procedure through `GWLP_USERDATA`.
@@ -88,19 +140,27 @@ impl TabBars {
                     tabs: Vec::new(),
                     sink: self.sink.clone(),
                 }));
+                // Opaque (not layered), so Windows 11 can round its corners like a window's.
                 let Some(h) = create_popup(
                     BAR_CLASS,
                     bar_proc,
-                    WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                    WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
                     false,
                 ) else {
                     return;
                 };
                 // SAFETY: the pointer stays valid until the window is destroyed in `hide`
-                // (the box is dropped after DestroyWindow).
+                // (the box is dropped after DestroyWindow). The corner preference is a
+                // DWORD; Windows 10 ignores it.
                 unsafe {
-                    SetLayeredWindowAttributes(h, 0, BAR_ALPHA, LWA_ALPHA);
                     SetWindowLongPtrW(h, GWLP_USERDATA, &*data as *const _ as isize);
+                    let round = DWMWCP_ROUND;
+                    DwmSetWindowAttribute(
+                        h,
+                        DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+                        (&round as *const i32).cast(),
+                        std::mem::size_of::<i32>() as u32,
+                    );
                 }
                 bars.entry(bar.id.clone()).or_insert(Bar {
                     hwnd: h,
@@ -218,8 +278,10 @@ unsafe extern "system" fn bar_proc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) ->
     }
 }
 
-/// Draws the tabs: dark background, the active tab lighter with an accent underline.
+/// Draws the tabs like Windows 11's: the system's light or dark background, the active tab
+/// as a raised rounded "pill" with a short accent line under its title.
 unsafe fn paint_bar(h: HWND, data: *const RefCell<BarData>) {
+    let colors = palette();
     let mut ps = PAINTSTRUCT::default();
     // SAFETY: paired with EndPaint below; GDI objects are deleted after use.
     unsafe {
@@ -231,14 +293,14 @@ unsafe fn paint_bar(h: HWND, data: *const RefCell<BarData>) {
             FillRect(hdc, r, brush);
             DeleteObject(brush);
         };
-        fill(&rc, BACKGROUND);
+        fill(&rc, colors.background);
         if !data.is_null() {
             let tabs = &(*data).borrow().tabs;
             let n = tabs.len().max(1) as i32;
             let height = rc.bottom - rc.top;
             let face = wide("Segoe UI");
             let font = CreateFontW(
-                -(height * 11 / 20).max(9),
+                -(height * 9 / 20).max(9),
                 0,
                 0,
                 0,
@@ -253,9 +315,10 @@ unsafe fn paint_bar(h: HWND, data: *const RefCell<BarData>) {
                 (DEFAULT_PITCH | FF_DONTCARE) as u32,
                 face.as_ptr(),
             );
-            let old = SelectObject(hdc, font);
+            let old_font = SelectObject(hdc, font);
             SetBkMode(hdc, TRANSPARENT as i32);
-            SetTextColor(hdc, TEXT);
+            SetTextColor(hdc, colors.text);
+            let active_index = tabs.iter().position(|t| t.2);
             for (i, (_, label, active)) in tabs.iter().enumerate() {
                 let i = i as i32;
                 let tab = RECT {
@@ -265,27 +328,50 @@ unsafe fn paint_bar(h: HWND, data: *const RefCell<BarData>) {
                     bottom: rc.bottom,
                 };
                 if *active {
-                    fill(&tab, ACTIVE);
-                    fill(
-                        &RECT {
-                            top: tab.bottom - 2,
-                            ..tab
-                        },
-                        ACCENT,
+                    // The raised pill, with a thin border.
+                    let pen = CreatePen(PS_SOLID, 1, colors.border);
+                    let brush = CreateSolidBrush(colors.active);
+                    let (old_pen, old_brush) = (SelectObject(hdc, pen), SelectObject(hdc, brush));
+                    RoundRect(
+                        hdc,
+                        tab.left + 3,
+                        tab.top + 3,
+                        tab.right - 3,
+                        tab.bottom - 3,
+                        10,
+                        10,
                     );
-                }
-                if i > 0 {
+                    SelectObject(hdc, old_pen);
+                    SelectObject(hdc, old_brush);
+                    DeleteObject(pen);
+                    DeleteObject(brush);
+                    // The accent line, centered under the title.
+                    let mid = (tab.left + tab.right) / 2;
+                    let half = ((tab.right - tab.left) / 6).clamp(6, 24);
                     fill(
                         &RECT {
-                            right: tab.left + 1,
-                            ..tab
+                            left: mid - half,
+                            right: mid + half,
+                            top: tab.bottom - 6,
+                            bottom: tab.bottom - 4,
                         },
-                        SEPARATOR,
+                        colors.accent,
+                    );
+                } else if i > 0 && active_index != Some(i as usize - 1) {
+                    // A short separator between two inactive tabs.
+                    fill(
+                        &RECT {
+                            left: tab.left,
+                            right: tab.left + 1,
+                            top: tab.top + height / 4,
+                            bottom: tab.bottom - height / 4,
+                        },
+                        colors.separator,
                     );
                 }
                 let mut text_rect = RECT {
-                    left: tab.left + 6,
-                    right: tab.right - 6,
+                    left: tab.left + 10,
+                    right: tab.right - 10,
                     ..tab
                 };
                 let mut text: Vec<u16> = label.encode_utf16().collect();
@@ -297,7 +383,7 @@ unsafe fn paint_bar(h: HWND, data: *const RefCell<BarData>) {
                     DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX,
                 );
             }
-            SelectObject(hdc, old);
+            SelectObject(hdc, old_font);
             DeleteObject(font);
         }
         EndPaint(h, &ps);
