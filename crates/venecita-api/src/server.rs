@@ -16,6 +16,7 @@
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -39,8 +40,12 @@ pub const BODY_LIMIT: usize = 16 * 1024;
 pub const MAX_FAILURES: u32 = 10;
 /// How long failed logins are counted.
 pub const FAILURE_WINDOW: Duration = Duration::from_secs(60);
-/// How long a blocked address gets 429.
+/// How long a blocked address gets 429 for a wrong token (the right one still works).
 pub const BLOCK_FOR: Duration = Duration::from_secs(60);
+/// Addresses remembered for failed logins before stale ones are dropped.
+const MAX_TRACKED: usize = 1024;
+/// Event connections (`/v1/events`) open at once.
+pub const MAX_EVENT_CLIENTS: usize = 32;
 /// How long the server waits for the application to answer.
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -204,6 +209,7 @@ struct AppState {
     handler: Handler,
     events: Events,
     failures: Arc<Mutex<HashMap<IpAddr, Failures>>>,
+    event_clients: Arc<AtomicUsize>,
     closing: watch::Receiver<bool>,
 }
 
@@ -232,6 +238,7 @@ fn router_with(
         handler,
         events,
         failures: Arc::default(),
+        event_clients: Arc::default(),
         closing,
     };
     Router::new()
@@ -270,14 +277,16 @@ async fn guard(State(s): State<AppState>, request: Request, next: Next) -> Respo
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
         .map_or(IpAddr::V4(Ipv4Addr::LOCALHOST), |c| c.0.ip());
-    if s.blocked(ip) {
-        return error(
-            StatusCode::TOO_MANY_REQUESTS,
-            "too many failed attempts; try again in a minute",
-        );
-    }
     let public = matches!(request.uri().path(), "/v1/health" | "/v1/openapi.json");
     if !public && !authorized(headers, &s.token) {
+        // A blocked address only stops wrong tokens: whoever has the right one (the CLI)
+        // can't be locked out by another program failing on purpose.
+        if s.blocked(ip) {
+            return error(
+                StatusCode::TOO_MANY_REQUESTS,
+                "too many failed attempts; try again in a minute",
+            );
+        }
         s.record_failure(ip);
         return error(StatusCode::UNAUTHORIZED, "missing or invalid token");
     }
@@ -333,6 +342,17 @@ impl AppState {
     fn record_failure(&self, ip: IpAddr) {
         let now = Instant::now();
         let mut failures = self.failures.lock().unwrap_or_else(|e| e.into_inner());
+        if failures.len() >= MAX_TRACKED && !failures.contains_key(&ip) {
+            // Forget addresses whose window and block are over.
+            failures.retain(|_, f| {
+                now.duration_since(f.since) <= FAILURE_WINDOW
+                    || f.blocked_until.is_some_and(|until| now < until)
+            });
+            if failures.len() >= MAX_TRACKED {
+                tracing::warn!(%ip, "API: too many addresses failing at once");
+                return;
+            }
+        }
         let entry = failures.entry(ip).or_insert(Failures {
             since: now,
             count: 0,
@@ -425,9 +445,35 @@ async fn events_socket(
         Some(protocol) => upgrade.protocols([protocol]),
         None => upgrade,
     };
+    let Some(slot) = EventSlot::take(&s.event_clients) else {
+        return error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "too many event connections",
+        );
+    };
     let events = s.events.0.subscribe();
     let closing = s.closing.clone();
-    upgrade.on_upgrade(move |socket| forward(socket, events, closing))
+    upgrade.on_upgrade(move |socket| async move {
+        forward(socket, events, closing).await;
+        drop(slot);
+    })
+}
+
+/// One of the [`MAX_EVENT_CLIENTS`] event connections, released when dropped.
+struct EventSlot(Arc<AtomicUsize>);
+
+impl EventSlot {
+    fn take(count: &Arc<AtomicUsize>) -> Option<Self> {
+        let slot = Self(count.clone());
+        // Over the limit: dropping the slot gives the count back.
+        (count.fetch_add(1, Ordering::SeqCst) < MAX_EVENT_CLIENTS).then_some(slot)
+    }
+}
+
+impl Drop for EventSlot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 /// Sends every published event to one client until it leaves or the server stops.

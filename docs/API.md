@@ -99,5 +99,11 @@ the WebSocket subprotocol (`Sec-WebSocket-Protocol: <token>`).
 - Only this computer can connect unless `allow_lan = true`.
 - The `Host` header must be `127.0.0.1`, `localhost` or `[::1]` with the API's port, which
   blocks DNS rebinding; requests from web pages (with an `Origin` header) are refused.
-- After 10 failed logins within a minute, an address gets `429` for a minute.
+- After 10 failed logins within a minute, an address gets `429` for a minute for any wrong
+  token; the right token keeps working, so no other program can lock the CLI out.
+- At most 32 event connections (`/v1/events`) at once; more get `503`.
+- With `allow_lan = true` the API is plain HTTP: the token travels unencrypted on the
+  network. Use it only on networks you trust.
+- `--token` is visible to other programs in the process list; prefer `VENECITA_TOKEN` or
+  the token file.
 - Bodies are limited to 16 KiB. The token is compared in constant time and never logged.

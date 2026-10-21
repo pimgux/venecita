@@ -13,6 +13,10 @@ on:
     branches: [main]
   pull_request:
 
+# Solo lectura: esta verificación no publica nada.
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -22,10 +26,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Descargar el código
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Instalar Rust (con rustfmt)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: stable
           components: rustfmt
       - name: Revisar el formato (cargo fmt)
         run: cargo fmt --all --check
@@ -45,13 +50,14 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Descargar el código
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Instalar Rust (con clippy)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: stable
           components: clippy
       - name: Reutilizar la compilación anterior (caché)
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - name: Revisar advertencias (cargo clippy)
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Correr las pruebas (cargo test)
@@ -94,11 +100,13 @@ jobs:
     needs: pruebas
     steps:
       - name: Descargar el código
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Instalar Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
       - name: Reutilizar la compilación anterior (caché)
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - name: Compilar venecita-dock.exe y venecita.exe (release)
         run: cargo build --release -p venecita-app --bin venecita-dock -p venecita-cli --bin venecita
       - name: Instalar WiX 5 (para el instalador)
@@ -118,7 +126,7 @@ jobs:
           $out = wix build wix/venecita.wxs -d Version=$version -d BinDir=target/release -o dist/venecita-dock.msi 2>&1
           if ($LASTEXITCODE -ne 0) { $out | ForEach-Object { "::error::$_" }; exit 1 }
       - name: Dejar los archivos para descargar
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: venecita-dock-windows-x86_64
           path: dist/
@@ -129,15 +137,17 @@ jobs:
     needs: pruebas
     steps:
       - name: Descargar el código
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Instalar Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
       - name: Reutilizar la compilación anterior (caché)
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - name: Armar la app y el DMG
         run: scripts/bundle-macos.sh
       - name: Dejar el DMG para descargar
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: venecita-dock-macos
           path: dist/*.dmg

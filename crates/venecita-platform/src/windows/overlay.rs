@@ -199,6 +199,18 @@ impl TabBars {
     }
 }
 
+impl Drop for TabBars {
+    /// Destroys the remaining bars before their data boxes are freed, so the window
+    /// procedure never reads a dangling `GWLP_USERDATA` pointer.
+    fn drop(&mut self) {
+        for (_, bar) in self.bars.get_mut().drain() {
+            // SAFETY: our window; the data box is dropped after it is destroyed.
+            unsafe { DestroyWindow(bar.hwnd) };
+            drop(bar.data);
+        }
+    }
+}
+
 /// Places `h` in the z-order just above `target` (and, with `frame`, moves it there).
 fn place_above(h: HWND, target: HWND, frame: Option<Rect>) {
     // "Insert after" puts a window *below* the given one, so insert after whatever is
@@ -452,6 +464,15 @@ impl DimLayer {
         for (_, h) in self.windows.borrow().iter() {
             // SAFETY: our windows.
             unsafe { ShowWindow(*h, SW_HIDE) };
+        }
+    }
+}
+
+impl Drop for DimLayer {
+    fn drop(&mut self) {
+        for (_, h) in self.windows.get_mut().drain(..) {
+            // SAFETY: our windows.
+            unsafe { DestroyWindow(h) };
         }
     }
 }

@@ -206,9 +206,15 @@ async fn the_rate_limiter_kicks_in_after_ten_failures() {
             .unwrap();
         assert_eq!(send(&app, wrong).await.0, StatusCode::UNAUTHORIZED);
     }
-    // Now even the right token is refused for a while.
+    // Now wrong tokens are refused for a while...
+    let wrong = request("GET", "/v1/state")
+        .header(header::AUTHORIZATION, "Bearer wrong")
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(send(&app, wrong).await.0, StatusCode::TOO_MANY_REQUESTS);
+    // ...but the right one still works: nobody can lock the CLI out.
     let right = authed("GET", "/v1/state").body(Body::empty()).unwrap();
-    assert_eq!(send(&app, right).await.0, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(send(&app, right).await.0, StatusCode::OK);
 }
 
 #[tokio::test]

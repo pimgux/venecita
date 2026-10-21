@@ -24,9 +24,11 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Descargar el código
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Instalar Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
       - name: Correr las pruebas (cargo test)
         run: cargo test --workspace
       - name: Compilar venecita-dock.exe y venecita.exe (release)
@@ -51,7 +53,7 @@ jobs:
           $out = wix build wix/venecita.wxs -d Version=$version -d BinDir=target/release -o "paquetes/$name.msi" 2>&1
           if ($LASTEXITCODE -ne 0) { $out | ForEach-Object { "::error::$_" }; exit 1 }
       - name: Guardar los paquetes de Windows
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: paquetes-windows
           path: paquetes/
@@ -61,9 +63,11 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Descargar el código
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Instalar Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
       - name: Correr las pruebas (cargo test)
         run: cargo test --workspace
       - name: Armar la app universal y el DMG
@@ -75,7 +79,7 @@ jobs:
           mkdir -p paquetes
           mv dist/Venecita-Dock-*-macos.dmg "paquetes/venecita-dock-${{ github.ref_name }}-macos.dmg"
       - name: Guardar el paquete de macOS
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: paquetes-macos
           path: paquetes/
@@ -86,7 +90,7 @@ jobs:
     needs: [windows, macos]
     steps:
       - name: Juntar los paquetes
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: paquetes-*
           path: paquetes
@@ -97,7 +101,7 @@ jobs:
           for f in *; do sha256sum "$f" > "$f.sha256"; done
           ls -la
       - name: Publicar la versión
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true

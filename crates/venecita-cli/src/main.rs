@@ -28,7 +28,8 @@ struct Cli {
     /// API address (default: from the config file, else http://127.0.0.1:47800).
     #[arg(long, global = true)]
     url: Option<String>,
-    /// Access token (default: the token file next to the config).
+    /// Access token (default: the token file next to the config). Other programs can see
+    /// command-line arguments: prefer `VENECITA_TOKEN` or the token file.
     #[arg(long, global = true, env = "VENECITA_TOKEN", hide_env_values = true)]
     token: Option<String>,
     /// Print the raw JSON answer.
