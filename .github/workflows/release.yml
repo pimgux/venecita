@@ -47,7 +47,9 @@ jobs:
           Copy-Item README.md, LICENSE, docs/API.md $name/
           Copy-Item examples/config.toml "$name/config.example.toml"
           Compress-Archive -Path $name -DestinationPath "paquetes/$name.zip"
-          wix build wix/venecita.wxs -d Version=$version -d BinDir=target/release -o "paquetes/$name.msi"
+          # If WiX fails, show its messages as errors of the run.
+          $out = wix build wix/venecita.wxs -d Version=$version -d BinDir=target/release -o "paquetes/$name.msi" 2>&1
+          if ($LASTEXITCODE -ne 0) { $out | ForEach-Object { "::error::$_" }; exit 1 }
       - name: Guardar los paquetes de Windows
         uses: actions/upload-artifact@v4
         with:
