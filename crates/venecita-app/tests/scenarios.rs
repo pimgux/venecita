@@ -1050,3 +1050,24 @@ fn arranging_puts_a_moved_window_back() {
     desk.driver.on_action(Action::RelayoutAll);
     assert_eq!(desk.frame(code), home);
 }
+
+#[test]
+fn every_window_can_explain_where_it_went() {
+    let mut desk = Desk::new(setups::home_open());
+    let code = desk.open(VSCODE);
+    let slack = desk.open(SLACK);
+    let calc = desk.open("com.apple.calculator");
+    let e = desk.driver.engine();
+    assert!(
+        e.explain(code)
+            .starts_with("rule 1 of layout `Notebook abierta`"),
+        "{}",
+        e.explain(code)
+    );
+    assert!(
+        e.explain(slack).contains("dynamic zone"),
+        "{}",
+        e.explain(slack)
+    );
+    assert_eq!(e.explain(calc), "left alone (ignored app)");
+}

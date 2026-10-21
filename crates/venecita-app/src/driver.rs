@@ -72,6 +72,11 @@ impl<P: Platform> Driver<P> {
         let requests = self.execute(commands);
         let s = self.engine.status();
         info!(profile = ?s.profile, layout = ?s.layout, "active layout");
+        // Where every window went and why (which rule matched, or the dynamic zone).
+        for w in self.engine.windows() {
+            info!(app = %w.app.id, name = %w.app.name, title = %w.title,
+                "{}", self.engine.explain(w.id));
+        }
         Ok(requests)
     }
 

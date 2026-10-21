@@ -291,6 +291,62 @@ impl Engine {
         self.focused
     }
 
+    /// Why a window is (or isn't) where it is, for the logs: the rule it matched, the
+    /// dynamic zone, or why Venecita leaves it alone.
+    pub fn explain(&self, id: WindowId) -> String {
+        let Some(w) = self.windows.get(&id) else {
+            return "unknown window".into();
+        };
+        if self.paused {
+            return "paused".into();
+        }
+        if w.kind != WindowKind::Normal {
+            return format!("left alone ({:?})", w.kind);
+        }
+        if any_app_matches(&self.config.general.ignore, &w.app) {
+            return "left alone (ignored app)".into();
+        }
+        let Some(layout) = self.active_layout() else {
+            return "no layout fits the connected displays".into();
+        };
+        let zone = |p: &Placement| format!("{} {},{} {}x{}", p.display, p.col, p.row, p.w, p.h);
+        match layout
+            .rules
+            .iter()
+            .position(|r| any_app_matches(&r.apps, &w.app))
+        {
+            Some(i) => {
+                let rule = &layout.rules[i];
+                if self.display(&rule.zone.display).is_some() {
+                    format!(
+                        "rule {} of layout `{}` → {}",
+                        i + 1,
+                        layout.name,
+                        zone(&rule.zone)
+                    )
+                } else {
+                    format!(
+                        "rule {} of layout `{}` points to display `{}`, which isn't connected → dynamic zone",
+                        i + 1,
+                        layout.name,
+                        rule.zone.display
+                    )
+                }
+            }
+            None => match &layout.dynamic_zone {
+                Some(dz) => format!(
+                    "no rule of layout `{}` names this app → dynamic zone {}",
+                    layout.name,
+                    zone(dz)
+                ),
+                None => format!(
+                    "no rule of layout `{}` names this app; no dynamic zone",
+                    layout.name
+                ),
+            },
+        }
+    }
+
     /// Whether a reported move of `id` to `frame` was made by the user: the window is one
     /// Venecita arranges, it isn't where Venecita last put it, and focus mode isn't
     /// handling it. Used for automatic arranging (`general.auto_arrange`).

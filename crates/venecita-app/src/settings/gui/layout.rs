@@ -124,6 +124,8 @@ pub(super) struct State {
     apps: String,
     /// App id being typed to add to the selection.
     new_app: String,
+    /// The editor already switched to the layout in use (once, when it opened).
+    opened_in_use: bool,
     running: Vec<(String, String)>,
     running_refreshed: Option<Instant>,
     error: Option<String>,
@@ -149,6 +151,18 @@ pub(super) fn show(
         ui.label(egui::RichText::new(i18n.get("no-profiles")).color(theme::subtle(ui)));
         return;
     }
+
+    // The layout Venecita uses with the displays connected now (as automatic detection
+    // would choose it). The editor opens on it, and says when another one is edited.
+    let in_use = layout_in_use(&config, displays.connected());
+    if !state.opened_in_use && !displays.connected().is_empty() {
+        state.opened_in_use = true;
+        if let Some(r) = in_use {
+            state.profile = r.profile;
+            state.layout = r.layout;
+        }
+    }
+    refresh_running(state);
 
     // --- Profile / layout pickers ---
     let before = (state.profile, state.layout);
@@ -177,7 +191,41 @@ pub(super) fn show(
                         ui.selectable_value(&mut state.layout, i, &l.name);
                     }
                 });
+            if in_use.is_some_and(|r| (r.profile, r.layout) == (state.profile, state.layout)) {
+                ui.add_space(8.0);
+                ui.colored_label(
+                    egui::Color32::from_rgb(52, 199, 89),
+                    format!("● {}", i18n.get("layout-in-use")),
+                );
+            }
         });
+        // Rules only apply in the layout in use: say so when editing another one.
+        match in_use {
+            Some(r) if (r.profile, r.layout) != (state.profile, state.layout) => {
+                let name = format!(
+                    "{} – {}",
+                    config.profiles[r.profile].name,
+                    config.profiles[r.profile].layouts[r.layout].name
+                );
+                let mut args = fluent::FluentArgs::new();
+                args.set("layout", name);
+                ui.horizontal_wrapped(|ui| {
+                    ui.colored_label(
+                        ui.visuals().warn_fg_color,
+                        i18n.get_args("layout-not-in-use", &args),
+                    );
+                    if theme::button(ui, Kind::Secondary, None, i18n.get("go-to-in-use")).clicked()
+                    {
+                        state.profile = r.profile;
+                        state.layout = r.layout;
+                    }
+                });
+            }
+            None if !displays.connected().is_empty() => {
+                ui.colored_label(ui.visuals().warn_fg_color, i18n.get("no-layout-fits"));
+            }
+            _ => {}
+        }
     });
     if (state.profile, state.layout) != before {
         clear_selection(state);
@@ -492,6 +540,24 @@ fn display_names(state: &State, apps: &[String]) -> Vec<String> {
         }
     }
     names
+}
+
+/// The layout automatic detection picks for the connected displays.
+fn layout_in_use(
+    config: &venecita_core::Config,
+    connected: &[venecita_core::display::DisplayInfo],
+) -> Option<venecita_core::profile::LayoutRef> {
+    let resolved = resolve_displays(&config.displays, connected);
+    let ids: std::collections::HashSet<&str> = resolved.iter().map(|r| r.def_id.as_str()).collect();
+    venecita_core::profile::select_layout(&config.profiles, &ids, None)
+}
+
+/// Whether one of the apps named by a rule has a window open now.
+fn rule_app_open(state: &State, apps: &[String]) -> bool {
+    state.running.iter().any(|(id, name)| {
+        let app = venecita_core::rules::AppIdentity::new(id.clone(), name.clone());
+        venecita_core::rules::any_app_matches(apps, &app)
+    })
 }
 
 /// A readable name for an app id: the running app's name if known.
@@ -818,9 +884,15 @@ fn rules_list(
                 }
                 // Name on top (cut with "…" if needed), its zone underneath.
                 ui.vertical(|ui| {
-                    let text = egui::RichText::new(display_names(state, &rule.apps).join(", "));
-                    let text = if selected { text.strong() } else { text };
-                    ui.add(egui::Label::new(text).truncate());
+                    ui.horizontal(|ui| {
+                        if rule_app_open(state, &rule.apps) {
+                            ui.colored_label(egui::Color32::from_rgb(52, 199, 89), "●")
+                                .on_hover_text(i18n.get("rule-app-open"));
+                        }
+                        let text = egui::RichText::new(display_names(state, &rule.apps).join(", "));
+                        let text = if selected { text.strong() } else { text };
+                        ui.add(egui::Label::new(text).truncate());
+                    });
                     let z = &rule.zone;
                     let zone = format!(
                         "{} · col {} · {} {} · {}×{}",
