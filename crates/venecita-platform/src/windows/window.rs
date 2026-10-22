@@ -29,8 +29,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
     GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, IsZoomed, SetForegroundWindow,
     SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE, GW_OWNER, SWP_NOACTIVATE, SWP_NOOWNERZORDER,
-    SWP_NOZORDER, SW_RESTORE, WS_CAPTION, WS_CHILD, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_THICKFRAME,
+    SWP_NOZORDER, SW_RESTORE, WS_CAPTION, WS_CHILD, WS_EX_APPWINDOW, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_THICKFRAME,
 };
 
 use super::util::{from_wide, hwnd, last_error, rect, wide, window_id};
@@ -59,18 +59,25 @@ pub fn handles() -> Vec<HWND> {
 }
 
 /// Whether `h` is a window a user would call an application window: visible, not owned
-/// by another window, not a tool window, not hidden by DWM ("cloaked" UWP windows and
-/// windows on other virtual desktops) and not part of the shell.
+/// by another window (dialogs), not a tool window, not hidden by DWM ("cloaked" UWP
+/// windows and windows on other virtual desktops) and not part of the shell.
+///
+/// An owned window still counts if it asks for its own taskbar button
+/// (`WS_EX_APPWINDOW`): Delphi apps such as MobaXterm own every form, main one included,
+/// by a hidden `TApplication` window.
 pub fn eligible(h: HWND) -> bool {
     // SAFETY: these functions accept any handle and fail gracefully on stale ones.
     unsafe {
-        if IsWindow(h) == 0 || IsWindowVisible(h) == 0 || !GetWindow(h, GW_OWNER).is_null() {
+        if IsWindow(h) == 0 || IsWindowVisible(h) == 0 {
+            return false;
+        }
+        let ex = GetWindowLongPtrW(h, GWL_EXSTYLE) as u32;
+        if !GetWindow(h, GW_OWNER).is_null() && ex & WS_EX_APPWINDOW == 0 {
             return false;
         }
         if GetWindowLongPtrW(h, GWL_STYLE) as u32 & WS_CHILD != 0 {
             return false;
         }
-        let ex = GetWindowLongPtrW(h, GWL_EXSTYLE) as u32;
         if ex & (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE) != 0 {
             return false;
         }
