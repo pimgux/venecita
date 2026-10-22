@@ -110,6 +110,11 @@ pub(super) fn show(
                             .color(theme::subtle(ui)),
                     );
                 });
+                // A display that already has a definition of its own needs no second one:
+                // the copy could never be connected at the same time as the first.
+                if already_defined(&defs, &resolved, info) {
+                    return;
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let id = state
                         .assign_ids
@@ -135,6 +140,7 @@ pub(super) fn show(
 
     // --- Defined ---
     let mut delete = None;
+    let mut merge: Option<(String, String)> = None;
     theme::card(ui, Some(&i18n.get("defined-displays")), |ui| {
         for (i, def) in defs.iter().enumerate() {
             if i > 0 {
@@ -152,6 +158,19 @@ pub(super) fn show(
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if theme::button(ui, Kind::Danger, None, i18n.get("delete")).clicked() {
                         delete = Some(i);
+                    }
+                    // Move this definition's layouts and rules to another one and drop it.
+                    if defs.len() > 1 {
+                        ui.menu_button(i18n.get("merge-into"), |ui| {
+                            for other in defs.iter().filter(|d| d.id != def.id) {
+                                if ui.button(&other.id).clicked() {
+                                    merge = Some((def.id.clone(), other.id.clone()));
+                                    ui.close_menu();
+                                }
+                            }
+                        })
+                        .response
+                        .on_hover_text(i18n.get("merge-into-hint"));
                     }
                     let mut custom = def.grid.is_some();
                     let mut grid = def.grid.unwrap_or(model.config().general.grid);
@@ -181,6 +200,24 @@ pub(super) fn show(
     if let Some(i) = delete {
         state.error = model.delete_display(i).err();
     }
+    if let Some((from, into)) = merge {
+        state.error = model.merge_display(&from, &into).err();
+    }
+}
+
+/// Whether `info` is already recognised by a definition made for it: the built-in panel by
+/// any definition, an external display by one that names its model. An external display
+/// that only a generic "any external" definition catches can still get its own.
+fn already_defined(
+    defs: &[venecita_core::display::DisplayDef],
+    resolved: &[venecita_core::display::ResolvedDisplay],
+    info: &DisplayInfo,
+) -> bool {
+    resolved
+        .iter()
+        .filter(|r| r.handle == info.handle)
+        .filter_map(|r| defs.iter().find(|d| d.id == r.def_id))
+        .any(|d| info.builtin || d.matcher.is_specific())
 }
 
 /// `name ~ "DELL U2723QE", serial 1234` style description of a matcher.

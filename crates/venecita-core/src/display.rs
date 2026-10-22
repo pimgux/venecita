@@ -77,6 +77,18 @@ impl DisplayMatcher {
         *self == DisplayMatcher::default()
     }
 
+    /// Returns `true` if the matcher singles out a model of monitor (name, EDID ids or
+    /// resolution) and not just a kind of display (`builtin`), so it is more specific than
+    /// "any external display".
+    pub fn is_specific(&self) -> bool {
+        self.name.is_some()
+            || self.vendor.is_some()
+            || self.model.is_some()
+            || self.serial.is_some()
+            || self.width.is_some()
+            || self.height.is_some()
+    }
+
     /// Returns `true` if every criterion that is set matches `display`.
     pub fn matches(&self, display: &DisplayInfo) -> bool {
         if self.is_empty() {
@@ -122,10 +134,15 @@ pub struct ResolvedDisplay {
 
 /// Matches display definitions to connected displays.
 ///
-/// Definitions are processed in configuration order. Each one claims the **left-most**
-/// (then top-most) connected display that it matches and that has not been claimed yet.
-/// This lets two identical monitors (same name, no serial) be told apart: define
-/// `work_left` before `work_right` with the same matcher and they are assigned by position.
+/// Definitions that name a monitor (see [`DisplayMatcher::is_specific`]) are processed
+/// first, then the generic ones (`builtin = false`, "any external display"), each group in
+/// configuration order. A generic definition therefore never takes a monitor that a
+/// specific one is waiting for, wherever it sits in the file.
+///
+/// Each definition claims the **left-most** (then top-most) connected display that it
+/// matches and that has not been claimed yet. This lets two identical monitors (same name,
+/// no serial) be told apart: define `work_left` before `work_right` with the same matcher
+/// and they are assigned by position.
 ///
 /// Connected displays that match no definition are simply not part of the result.
 pub fn resolve_displays(defs: &[DisplayDef], connected: &[DisplayInfo]) -> Vec<ResolvedDisplay> {
@@ -137,9 +154,11 @@ pub fn resolve_displays(defs: &[DisplayDef], connected: &[DisplayInfo]) -> Vec<R
             .then(a.frame.y.total_cmp(&b.frame.y))
     });
 
+    let specific = defs.iter().filter(|d| d.matcher.is_specific());
+    let generic = defs.iter().filter(|d| !d.matcher.is_specific());
     let mut claimed = vec![false; order.len()];
     let mut out = Vec::new();
-    for def in defs {
+    for def in specific.chain(generic) {
         let found = order
             .iter()
             .enumerate()
@@ -276,6 +295,63 @@ pub(crate) mod tests {
             pairs,
             vec![("left27", "A"), ("right27", "B"), ("laptop", "L")]
         );
+    }
+
+    #[test]
+    fn specific_definitions_win_over_a_generic_one_listed_first() {
+        // The default config has a generic `external`; later, each Dell gets its own
+        // definition. `external` must not grab a Dell the specific ones are waiting for.
+        let connected = vec![
+            display("L", "Built-in", true, Rect::new(0.0, 0.0, 1920.0, 1080.0)),
+            display(
+                "A",
+                "DELL P2422HE",
+                false,
+                Rect::new(-1920.0, 0.0, 1920.0, 1080.0),
+            ),
+            display(
+                "B",
+                "DELL P2425HE",
+                false,
+                Rect::new(1920.0, 0.0, 1920.0, 1080.0),
+            ),
+        ];
+        let external = DisplayMatcher {
+            builtin: Some(false),
+            ..Default::default()
+        };
+        let defs = vec![
+            def("external", external),
+            def("dell_a", by_name("P2422HE")),
+            def("dell_b", by_name("P2425HE")),
+        ];
+        let resolved = resolve_displays(&defs, &connected);
+        let mut pairs: Vec<_> = resolved
+            .iter()
+            .map(|r| (r.def_id.as_str(), r.handle.as_str()))
+            .collect();
+        pairs.sort();
+        // Both Dells are found by name; with nothing left, `external` stays unresolved.
+        assert_eq!(pairs, vec![("dell_a", "A"), ("dell_b", "B")]);
+    }
+
+    #[test]
+    fn a_generic_external_takes_what_is_left() {
+        let connected = vec![
+            display("A", "DELL P2422HE", false, Rect::new(0.0, 0.0, 10.0, 10.0)),
+            display("B", "Other", false, Rect::new(10.0, 0.0, 10.0, 10.0)),
+        ];
+        let external = DisplayMatcher {
+            builtin: Some(false),
+            ..Default::default()
+        };
+        let defs = vec![def("external", external), def("dell", by_name("DELL"))];
+        let pairs: Vec<_> = resolve_displays(&defs, &connected)
+            .into_iter()
+            .map(|r| (r.def_id, r.handle))
+            .collect();
+        assert!(pairs.contains(&("dell".to_string(), "A".to_string())));
+        assert!(pairs.contains(&("external".to_string(), "B".to_string())));
     }
 
     #[test]

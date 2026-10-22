@@ -243,6 +243,23 @@ pub(super) fn show(
             }
             None if !displays.connected().is_empty() => {
                 ui.colored_label(ui.visuals().warn_fg_color, i18n.get("no-layout-fits"));
+                let missing = missing_displays(
+                    &config,
+                    displays.connected(),
+                    config.profiles[state.profile]
+                        .layouts
+                        .get(state.layout)
+                        .map(|l| l.displays.as_slice())
+                        .unwrap_or_default(),
+                );
+                if !missing.is_empty() {
+                    let mut args = fluent::FluentArgs::new();
+                    args.set("displays", missing.join(", "));
+                    ui.colored_label(
+                        ui.visuals().warn_fg_color,
+                        i18n.get_args("layout-missing-displays", &args),
+                    );
+                }
             }
             _ => {}
         }
@@ -604,6 +621,21 @@ fn layout_in_use(
     let resolved = resolve_displays(&config.displays, connected);
     let ids: std::collections::HashSet<&str> = resolved.iter().map(|r| r.def_id.as_str()).collect();
     venecita_core::profile::select_layout(&config.profiles, &ids, None)
+}
+
+/// The display ids of a layout that no connected display resolves to: the reason the
+/// layout doesn't fit.
+fn missing_displays(
+    config: &venecita_core::Config,
+    connected: &[venecita_core::display::DisplayInfo],
+    layout_displays: &[String],
+) -> Vec<String> {
+    let resolved = resolve_displays(&config.displays, connected);
+    layout_displays
+        .iter()
+        .filter(|id| !resolved.iter().any(|r| &r.def_id == *id))
+        .cloned()
+        .collect()
 }
 
 /// Whether one of the apps named by a rule has a window open now.

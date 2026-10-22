@@ -288,6 +288,127 @@ fn suggested_ids_are_slugs_and_unique() {
     );
 }
 
+/// Two definitions of the laptop panel and two layouts that use them, like a config
+/// edited by hand in the Displays tab.
+const DUPLICATED: &str = r#"
+[[displays]]
+id = "laptop"
+match = { builtin = true }
+
+[[displays]]
+id = "laptop_2"
+match = { builtin = true }
+
+[[displays]]
+id = "dell"
+match = { name = "DELL" }
+
+[[profiles]]
+name = "P"
+
+[[profiles.layouts]]
+name = "Both"
+displays = ["laptop", "laptop_2", "dell"]
+dynamic_zone = { display = "laptop_2", col = 0, row = 0, w = 4, h = 4 }
+
+[[profiles.layouts.rules]]
+apps = ["a.exe"]
+zone = { display = "laptop_2", col = 4, row = 0, w = 4, h = 4 }
+
+[[profiles.layouts.rules]]
+apps = ["b.exe"]
+zone = { display = "dell", col = 0, row = 0, w = 4, h = 4 }
+
+[[profiles.layouts]]
+name = "Only"
+displays = ["laptop_2"]
+"#;
+
+#[test]
+fn a_display_in_use_cannot_be_deleted() {
+    let mut m = model(DUPLICATED);
+    let idx = m
+        .config()
+        .displays
+        .iter()
+        .position(|d| d.id == "laptop_2")
+        .unwrap();
+    let err = m.delete_display(idx).unwrap_err();
+    assert!(
+        err.contains("P – Both") && err.contains("P – Only"),
+        "{err}"
+    );
+    assert!(m.is_valid(), "the refused delete changed nothing");
+    assert_eq!(m.config().displays.len(), 3);
+
+    // A display no layout mentions can be deleted.
+    let spare = m
+        .add_display("spare", &matcher_for(&info("Other", false, None)))
+        .unwrap();
+    assert!(m.display_uses("spare").is_empty());
+    m.delete_display(spare).unwrap();
+    assert_eq!(m.config().displays.len(), 3);
+}
+
+#[test]
+fn merging_a_display_moves_layouts_rules_and_dynamic_zone() {
+    let mut m = model(DUPLICATED);
+    m.merge_display("laptop_2", "laptop").unwrap();
+
+    assert!(m.is_valid(), "{:?}", m.errors());
+    assert!(m.config().displays.iter().all(|d| d.id != "laptop_2"));
+    let both = &m.config().profiles[0].layouts[0];
+    // `laptop` was already there, so it is not listed twice.
+    assert_eq!(both.displays, vec!["laptop", "dell"]);
+    assert_eq!(both.dynamic_zone.as_ref().unwrap().display, "laptop");
+    assert_eq!(both.rules[0].zone.display, "laptop");
+    assert_eq!(both.rules[1].zone.display, "dell");
+    assert_eq!(m.config().profiles[0].layouts[1].displays, vec!["laptop"]);
+    assert!(m.display_uses("laptop_2").is_empty());
+    assert!(
+        !m.to_toml_string().contains("laptop_2"),
+        "{}",
+        m.to_toml_string()
+    );
+}
+
+#[test]
+fn merging_needs_two_different_defined_displays() {
+    let mut m = model(DUPLICATED);
+    assert!(m.merge_display("laptop", "laptop").is_err());
+    assert!(m.merge_display("nope", "laptop").is_err());
+    assert!(m.merge_display("laptop", "nope").is_err());
+    assert!(m.is_valid());
+    assert_eq!(m.config().displays.len(), 3);
+}
+
+#[test]
+fn a_layout_cannot_drop_a_display_its_rules_use() {
+    let mut m = model(DUPLICATED);
+    // Dropping `dell` from "Both" would hide the rule that places `b.exe` on it.
+    let err = m
+        .set_layout_displays(0, 0, &["laptop".into(), "laptop_2".into()])
+        .unwrap_err();
+    assert!(err.contains("dell"), "{err}");
+    assert_eq!(m.config().profiles[0].layouts[0].displays.len(), 3);
+
+    // A display nothing is placed on can be dropped.
+    let mut m = model(DUPLICATED);
+    m.set_layout_displays(0, 0, &["laptop_2".into(), "dell".into()])
+        .unwrap();
+    assert_eq!(m.config().profiles[0].layouts[0].displays.len(), 2);
+}
+
+#[test]
+fn a_display_cannot_be_defined_twice_with_another_id() {
+    let mut m = model(DEFAULT); // `laptop` = built-in panel
+    let before = m.config().displays.len();
+    let laptop = matcher_for(&info("Built-in Retina Display", true, None));
+    let err = m.add_display("laptop_2", &laptop).unwrap_err();
+    assert!(err.contains("laptop"), "{err}");
+    assert_eq!(m.config().displays.len(), before);
+}
+
 #[test]
 fn add_edit_delete_displays() {
     let mut m = model(DEFAULT);

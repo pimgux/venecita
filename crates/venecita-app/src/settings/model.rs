@@ -193,7 +193,9 @@ impl SettingsModel {
     // --- Displays ----------------------------------------------------------------------
 
     /// Appends a display definition and returns its index. Fails if the id is empty or
-    /// already used.
+    /// already used, or if another definition already recognises displays the same way
+    /// (two identical definitions can never both be connected, and a layout that needs
+    /// both would never fit).
     pub fn add_display(&mut self, id: &str, matcher: &DisplayMatcher) -> Result<usize, String> {
         let id = id.trim();
         if id.is_empty() {
@@ -201,6 +203,12 @@ impl SettingsModel {
         }
         if self.config.displays.iter().any(|d| d.id == id) {
             return Err(format!("a display with id `{id}` already exists"));
+        }
+        if let Some(same) = self.config.displays.iter().find(|d| d.matcher == *matcher) {
+            return Err(format!(
+                "`{}` already recognises that display the same way",
+                same.id
+            ));
         }
         let mut table = Table::new();
         table["id"] = toml_edit::value(id);
@@ -228,14 +236,101 @@ impl SettingsModel {
         Ok(())
     }
 
-    /// Deletes a display definition. Layouts that still reference it become invalid and
-    /// are reported by validation.
+    /// The layouts (as `profile – layout`) that use the display `id`: it is one of their
+    /// displays, or a rule or the dynamic zone places windows on it.
+    pub fn display_uses(&self, id: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        for profile in &self.config.profiles {
+            for layout in &profile.layouts {
+                let used = layout.displays.iter().any(|d| d == id)
+                    || layout
+                        .dynamic_zone
+                        .as_ref()
+                        .is_some_and(|z| z.display == id)
+                    || layout.rules.iter().any(|r| r.zone.display == id);
+                if used {
+                    out.push(format!("{} – {}", profile.name, layout.name));
+                }
+            }
+        }
+        out
+    }
+
+    /// Deletes a display definition. Fails while a layout still uses it: its rules would
+    /// point at a display that no longer exists and the configuration could not be saved.
+    /// Use [`SettingsModel::merge_display`] to move them to another display first.
     pub fn delete_display(&mut self, idx: usize) -> Result<(), String> {
+        let id = self
+            .config
+            .displays
+            .get(idx)
+            .map(|d| d.id.clone())
+            .ok_or_else(|| format!("no display at index {idx}"))?;
+        let uses = self.display_uses(&id);
+        if !uses.is_empty() {
+            return Err(format!(
+                "`{id}` is still used by {}: merge it into another display first",
+                uses.join(", ")
+            ));
+        }
         let displays = self.root_array("displays");
         if idx >= displays.len() {
             return Err(format!("no display at index {idx}"));
         }
         displays.remove(idx);
+        self.refresh();
+        Ok(())
+    }
+
+    /// Moves everything that uses the display `from` (layouts, rules, dynamic zones) to
+    /// the display `into` and deletes the definition of `from`. This is how two
+    /// definitions of the same monitor become one.
+    pub fn merge_display(&mut self, from: &str, into: &str) -> Result<(), String> {
+        if from == into {
+            return Err("choose a different display to merge into".into());
+        }
+        let position = |id: &str| self.config.displays.iter().position(|d| d.id == id);
+        let from_idx = position(from).ok_or_else(|| format!("no display `{from}`"))?;
+        position(into).ok_or_else(|| format!("no display `{into}`"))?;
+
+        for profile in self.profiles_array().iter_mut() {
+            let Some(layouts) = profile
+                .get_mut("layouts")
+                .and_then(Item::as_array_of_tables_mut)
+            else {
+                continue;
+            };
+            for layout in layouts.iter_mut() {
+                // The layout needed `from`; now it needs `into` (once).
+                let ids = layout
+                    .get("displays")
+                    .and_then(Item::as_array)
+                    .filter(|a| a.iter().any(|v| v.as_str() == Some(from)))
+                    .map(|a| {
+                        let mut ids: Vec<String> = Vec::new();
+                        for v in a.iter().filter_map(|v| v.as_str()) {
+                            let id = if v == from { into } else { v };
+                            if !ids.iter().any(|i| i == id) {
+                                ids.push(id.to_string());
+                            }
+                        }
+                        ids
+                    });
+                if let Some(ids) = ids {
+                    layout["displays"] = string_array(&ids);
+                }
+                retarget_placement(layout.get_mut("dynamic_zone"), from, into);
+                if let Some(rules) = layout
+                    .get_mut("rules")
+                    .and_then(Item::as_array_of_tables_mut)
+                {
+                    for rule in rules.iter_mut() {
+                        retarget_placement(rule.get_mut("zone"), from, into);
+                    }
+                }
+            }
+        }
+        self.root_array("displays").remove(from_idx);
         self.refresh();
         Ok(())
     }
@@ -366,13 +461,39 @@ impl SettingsModel {
         Ok(())
     }
 
-    /// Sets the display ids a layout requires.
+    /// Sets the display ids a layout requires. Fails if that would drop a display that
+    /// rules or the dynamic zone of the layout still place windows on: the editor only
+    /// draws a layout's own displays, so those rules could no longer be seen or moved.
     pub fn set_layout_displays(
         &mut self,
         profile_idx: usize,
         layout_idx: usize,
         displays: &[String],
     ) -> Result<(), String> {
+        let layout = self
+            .config
+            .profiles
+            .get(profile_idx)
+            .and_then(|p| p.layouts.get(layout_idx))
+            .ok_or_else(|| format!("no layout at index {layout_idx}"))?;
+        for id in layout.displays.iter().filter(|d| !displays.contains(d)) {
+            let placed = layout
+                .rules
+                .iter()
+                .filter(|r| &r.zone.display == id)
+                .count()
+                + usize::from(
+                    layout
+                        .dynamic_zone
+                        .as_ref()
+                        .is_some_and(|z| &z.display == id),
+                );
+            if placed > 0 {
+                return Err(format!(
+                    "{placed} zone(s) of this layout still use `{id}`: move them to another display first"
+                ));
+            }
+        }
         self.layout_table_mut(profile_idx, layout_idx)?["displays"] = string_array(displays);
         self.refresh();
         Ok(())
@@ -932,6 +1053,23 @@ fn grid_value(grid: GridSize) -> Item {
     t.insert("cols", i64::from(grid.cols).into());
     t.insert("rows", i64::from(grid.rows).into());
     toml_edit::value(t)
+}
+
+/// Points a placement (`zone`, `dynamic_zone`) that is on the display `from` at `into`,
+/// keeping the rest of the entry as the user wrote it.
+fn retarget_placement(placement: Option<&mut Item>, from: &str, into: &str) {
+    let Some(display) = placement
+        .and_then(Item::as_table_like_mut)
+        .and_then(|t| t.get_mut("display"))
+        .and_then(Item::as_value_mut)
+    else {
+        return;
+    };
+    if display.as_str() == Some(from) {
+        let mut value = toml_edit::Value::from(into);
+        *value.decor_mut() = display.decor().clone();
+        *display = value;
+    }
 }
 
 fn placement_value(p: &Placement) -> Item {
