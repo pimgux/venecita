@@ -42,22 +42,29 @@ Pushing a tag `v*` runs the "Publicar versión" workflow (`.github/workflows/rel
 with its SHA-256 (tags with `-` are pre-releases). Every push to `main` also uploads the exe
 as a CI artifact. Commits end with the `Co-Authored-By` line the session asks for.
 
-## Status (2026-10-21)
+## Status (2026-10-22)
 
 Done: phases 0–9 (8 = local API + `venecita` CLI, see `docs/API.md`; 9 = Windows backend), redesigned settings (Apple style), tray menu with
 icons and shortcuts, auto-arrange, dim layer, focus mode, copying rules between layouts,
-security fixes. Latest release: `v0.1.1` (first non-alpha; the Windows bug below is still
-to be confirmed on it).
+security fixes. Latest release: `v0.1.2` (`v0.1.1` was tagged but never published: its macOS
+job was cancelled; the workflow now publishes when Windows succeeds even if macOS fails).
 
-**Open bug (Windows):** the settings work, but when arranging, every window goes to the
-dynamic zone. Most likely the rules were written in a layout that isn't the one in use with
-the connected displays (the editor used to open on the first layout). alpha.2 opens the
-editor on the layout in use, warns otherwise, and logs for every window which rule matched
-or why it went to the dynamic zone. To confirm, look at:
+Fixed on Windows (2026-10-22), confirmed on a real desk (laptop + 2 Dell):
 
-- `%APPDATA%\venecita-dock\config.toml` (the rules and their layout), and
-- the latest log in `%LOCALAPPDATA%\venecita-dock\logs\` (`active layout profile=… layout=…`
-  and, with alpha.2, one line per window explaining its placement).
+- The "every window goes to the dynamic zone" bug was a config where no layout fit the
+  connected displays. `resolve_displays` now matches definitions that name a monitor before
+  generic ones (`builtin = false`), the Displays tab no longer offers a second definition for
+  a display already defined, and the model refuses to delete a display or untick it from a
+  layout while rules still use it (those rules would be invisible in the editor and the
+  config unsaveable). "Merge into…" moves the layouts and rules of one display to another.
+- A profile is greyed out in the tray when none of its layouts fits: look at the
+  `active layout` line and the `no layout fits` lines in `%LOCALAPPDATA%\venecita-dock\logs\`.
+- Apps that own every form by a hidden window (Delphi: MobaXterm) are listed: an owned window
+  counts if it has `WS_EX_APPWINDOW` (`windows/window.rs`, `eligible`).
+
+Build gotcha: linking fails (`LNK1117 /MANIFESTINPUT`) when the checkout path contains a
+comma, as the OneDrive one does (`DIUSFRAMI,S.A`). Build with
+`CARGO_TARGET_DIR=C:\Users\mfperez\cargo-target\venecita`; CI is not affected.
 
 Packaging (phase 10, first half): `scripts/bundle-macos.sh` (universal .app + DMG, ad-hoc
 signed unless `MACOS_SIGN_IDENTITY`), `wix/venecita.wxs` (per-user MSI, WiX 5), app icon from
@@ -68,4 +75,5 @@ Also done: new shortcuts from Settings, Windows 11–style tab bars, and the Lin
 CI under Xvfb + Openbox). Not yet on Linux: the tray app (tray-icon needs GTK), tab bars and
 the dim layer.
 
-Next, after that bug: a Linux tray app if wanted, Developer ID signing / notarization.
+Next: forcing a layout by hand (today only the profile can be chosen; the layout always
+follows the displays), a Linux tray app if wanted, Developer ID signing / notarization.

@@ -6,6 +6,7 @@
 #   • Un .sha256 por archivo, para verificar la descarga.
 #
 # Los tags con guion (v0.1.1-alpha.1) se publican como pre-release.
+# La versión se publica si Windows salió bien, aunque falle macOS.
 name: Publicar versión
 
 on:
@@ -88,6 +89,10 @@ jobs:
     name: Publicar la versión en GitHub
     runs-on: ubuntu-latest
     needs: [windows, macos]
+    # Windows is required. If the macOS job fails or is cancelled the release is still
+    # published, with the Windows packages only (the macOS ones can be added later by
+    # re-running that job).
+    if: ${{ !cancelled() && needs.windows.result == 'success' }}
     steps:
       - name: Juntar los paquetes
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
