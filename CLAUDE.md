@@ -46,7 +46,7 @@ as a CI artifact. Commits end with the `Co-Authored-By` line the session asks fo
 
 Done: phases 0–9 (8 = local API + `venecita` CLI, see `docs/API.md`; 9 = Windows backend), redesigned settings (Apple style), tray menu with
 icons and shortcuts, auto-arrange, dim layer, focus mode, copying rules between layouts,
-security fixes. Latest release: `v0.1.4` (`v0.1.1` was tagged but never published: its macOS
+security fixes. Latest release: `v0.1.5` (`v0.1.1` was tagged but never published: its macOS
 job was cancelled; the workflow now publishes when Windows succeeds even if macOS fails).
 
 New in 0.1.3 (user feedback, 2026-10-28): connected displays the layout doesn't use are
@@ -54,7 +54,7 @@ reported (log + "Add to this layout" in the editor) and the starter config has `
 focus mode ends when any other window gets the focus; minimized/hidden windows leave their
 stack and tab bar, no tab bars in focus mode; first run is paused until a layout has a rule;
 the local API is off by default and a start failure shows in the tray; issue templates.
-Still to do from that feedback, in order: zone editor edges/overlaps (#11), per-display grid
+Still to do from that feedback, in order: per-display grid
 default (#3), Stage Manager warning (#10), onboarding wizard, monitor arrangement in the
 editor (#8), uninstall docs (#6). `main` stays unprotected for now.
 
@@ -63,6 +63,10 @@ removes the old MSI), and Settings › General has an Updates card (current/late
 "Update" downloads the package from the latest release, checks its `.sha256` and runs the
 setup with `/SILENT` on Windows or opens the DMG on macOS; `crates/venecita-app/src/update.rs`).
 The silent Windows update was untested when 0.1.4 shipped.
+
+New in 0.1.5 (#11): zone editor edge grab of 6 pt on each side, the selected rule drawn on
+top and grabbed first, edges win over other zones' bodies, clicking again cycles through
+overlapping rules, Alt + drag or "Draw a new zone" draws over existing zones.
 
 Fixed on Windows (2026-10-22), confirmed on a real desk (laptop + 2 Dell):
 
