@@ -236,8 +236,10 @@ pub fn install(path: &Path) -> Result<(), UpdateError> {
     if !path.is_absolute() {
         return Err(UpdateError::Launch("not an absolute path".into()));
     }
+    // `/SUPPRESSMSGBOXES`: no message box may stop an unattended update (the running app is
+    // closed by the installer itself, see installer/venecita.iss).
     std::process::Command::new(path)
-        .arg("/SILENT")
+        .args(["/SILENT", "/SUPPRESSMSGBOXES"])
         .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
         .spawn()
         .map(|_| tracing::info!(installer = %path.display(), "update: installer started"))
