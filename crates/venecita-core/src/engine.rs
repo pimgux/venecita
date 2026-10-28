@@ -238,8 +238,10 @@ pub struct Engine {
 }
 
 /// State of the extra focus mode.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 struct FocusMode {
+    /// The window the mode was turned on for. Focusing any other window ends the mode.
+    owner: WindowId,
     /// The window currently enlarged, if the focused one could be.
     enlarged: Option<Enlarged>,
 }
@@ -474,7 +476,7 @@ impl Engine {
                         stack.activate(id);
                     }
                 }
-                self.follow_focus()
+                self.focus_changed(id)
             }
             PlatformEvent::WindowMoved { id, frame } => {
                 if let Some(w) = self.windows.get_mut(&id) {
@@ -506,7 +508,12 @@ impl Engine {
                     None => Vec::new(),
                 }
             }
-            PlatformEvent::TabClicked { id } => self.focus_window(id),
+            PlatformEvent::TabClicked { id } => {
+                // Choosing another window ends focus mode, even inside the same stack.
+                let mut commands = self.focus_changed(id);
+                commands.extend(self.focus_window(id));
+                commands
+            }
             // Handled by the caller via `Input::Resync`; nothing to do with app launches.
             PlatformEvent::DisplaysChanged
             | PlatformEvent::SystemWoke
@@ -515,18 +522,10 @@ impl Engine {
     }
 
     fn on_action(&mut self, action: Action) -> Vec<Command> {
-        // Everything that arranges windows ends focus mode first, so it works on the
-        // windows' real places. Focus changes and stack cycling keep it on.
-        let keeps_focus_mode = matches!(
-            action,
-            Action::FocusModeToggle
-                | Action::StackNext
-                | Action::StackPrev
-                | Action::DynamicNext
-                | Action::DynamicPrev
-                | Action::FocusWindow { .. }
-                | Action::OpenSettings
-        );
+        // Everything that arranges windows or moves the focus ends focus mode first, so it
+        // works on the windows' real places: the mode is for the one window it was turned
+        // on for.
+        let keeps_focus_mode = matches!(action, Action::FocusModeToggle | Action::OpenSettings);
         if !keeps_focus_mode && self.focus_mode.is_some() {
             let mut commands = self.exit_focus_mode();
             commands.extend(self.on_action(action));
@@ -1037,10 +1036,13 @@ impl Engine {
         if self.paused {
             return Vec::new();
         }
-        if self.focused_window().is_none() {
+        let Some(owner) = self.focused_window().map(|w| w.id) else {
             return vec![Command::Notice(Notice::NoFocusedWindow)];
-        }
-        self.focus_mode = Some(FocusMode::default());
+        };
+        self.focus_mode = Some(FocusMode {
+            owner,
+            enlarged: None,
+        });
         self.enlarge_focused()
     }
 
@@ -1054,15 +1056,13 @@ impl Engine {
         commands
     }
 
-    /// The focus moved while focus mode is on: the previous window goes back, the new one
-    /// is enlarged.
-    fn follow_focus(&mut self) -> Vec<Command> {
-        if self.focus_mode.is_none() || self.enlarged().map(|e| e.id) == self.focused {
-            return Vec::new();
+    /// `id` got the focus. If it isn't the window focus mode was turned on for (the user
+    /// clicked another window, Cmd-Tab, a tab…), the mode ends and its window goes back.
+    fn focus_changed(&mut self, id: WindowId) -> Vec<Command> {
+        match &self.focus_mode {
+            Some(mode) if mode.owner != id => self.exit_focus_mode(),
+            _ => Vec::new(),
         }
-        let mut commands = self.restore_enlarged();
-        commands.extend(self.enlarge_focused());
-        commands
     }
 
     fn restore_enlarged(&mut self) -> Vec<Command> {

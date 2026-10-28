@@ -55,7 +55,8 @@ up scattered across the screen.
 ## Focus mode
 
 Press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>F</kbd>. The active window grows to about 80 % of the
-screen and everything else is dimmed. Press it again to go back.
+screen and everything else is dimmed. Press it again, or switch to another window
+(click it, <kbd>⌘</kbd><kbd>Tab</kbd>, a tab…), and it goes back to its place.
 
 ![Focus mode: the active window is enlarged and the rest are dimmed](docs/images/focus-en.svg)
 

@@ -57,7 +57,8 @@ nuevas nunca quedan desparramadas por la pantalla.
 ## Modo foco
 
 Apretá <kbd>⌃</kbd><kbd>⌥</kbd><kbd>F</kbd>. La ventana activa crece a cerca del 80 % de la
-pantalla y todo lo demás se oscurece. Apretalo de nuevo para volver.
+pantalla y todo lo demás se oscurece. Apretalo de nuevo, o pasá a otra ventana (con un clic,
+<kbd>⌘</kbd><kbd>Tab</kbd>, una pestaña…), y vuelve a su lugar.
 
 ![Modo foco: la ventana activa se agranda y las demás se oscurecen](docs/images/focus-es.svg)
 

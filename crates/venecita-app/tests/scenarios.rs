@@ -922,7 +922,7 @@ fn focus_mode_enlarges_dims_and_restores_exactly() {
 }
 
 #[test]
-fn focus_mode_follows_the_focus() {
+fn focusing_another_window_ends_focus_mode() {
     let mut desk = Desk::new(setups::home_open());
     let code = desk.open(VSCODE);
     let fox = desk.open(FIREFOX);
@@ -930,14 +930,15 @@ fn focus_mode_follows_the_focus() {
     let (code_home, fox_home) = (desk.frame(code), desk.frame(fox));
 
     desk.driver.on_action(Action::FocusModeToggle);
-    desk.focus(fox); // e.g. Cmd-Tab
-    assert_eq!(desk.frame(code), code_home, "the previous window goes back");
-    assert_eq!(desk.frame(fox), big_on_lg(), "the new one is enlarged");
-    assert_eq!(
-        desk.fake.layering().unwrap().focused,
-        Some(fox),
-        "the dim layer follows"
-    );
+    assert_eq!(desk.frame(code), big_on_lg());
+    desk.focus(code); // the enlarged window reporting its own focus keeps the mode on
+    assert!(desk.driver.engine().focus_mode());
+
+    desk.focus(fox); // e.g. a click on it, or Cmd-Tab
+    assert!(!desk.driver.engine().focus_mode());
+    assert_eq!(desk.frame(code), code_home, "the enlarged window goes back");
+    assert_eq!(desk.frame(fox), fox_home, "the new one is not enlarged");
+    assert_eq!(desk.fake.layering().unwrap().dim, None, "nothing is dimmed");
 
     // A late report of VS Code's enlarged frame arrives after it was restored, then the
     // report of the restore itself.
@@ -950,10 +951,35 @@ fn focus_mode_follows_the_focus() {
     desk.fake.user_move(code, code_home);
     desk.pump();
     assert!(in_a_stack(&desk, code));
+}
 
+#[test]
+fn a_tab_of_the_same_stack_ends_focus_mode() {
+    // Two windows of the dynamic zone share a stack (and a tab bar).
+    let mut desk = Desk::new(setups::home_open());
+    let a = desk.open(TERMINAL);
+    let b = desk.open(SLACK);
+    assert_eq!(
+        desk.fake.tab_bars().len(),
+        1,
+        "both in the dynamic zone's stack"
+    );
+    desk.focus(a);
+    let home = desk.frame(a);
     desk.driver.on_action(Action::FocusModeToggle);
-    assert_eq!(desk.frame(fox), fox_home);
-    assert_eq!(desk.frame(code), code_home);
+
+    desk.fake.click_tab(b);
+    desk.pump();
+    assert!(!desk.driver.engine().focus_mode());
+    assert_eq!(desk.frame(a), home);
+    assert_ne!(desk.frame(b), big_on_lg());
+
+    // Cycling the stack ends it too.
+    desk.focus(a);
+    desk.driver.on_action(Action::FocusModeToggle);
+    desk.driver.on_action(Action::StackNext);
+    assert!(!desk.driver.engine().focus_mode());
+    assert_eq!(desk.frame(a), home);
 }
 
 #[test]
