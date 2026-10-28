@@ -161,7 +161,7 @@ Packages: `scripts/bundle-macos.sh` builds `dist/Venecita Dock.app` and a DMG
 
 ## Status and roadmap
 
-Version **0.1.3** runs on macOS and Windows 10/11. The Linux (X11) backend is ready and
+Version **0.1.4** runs on macOS and Windows 10/11. The Linux (X11) backend is ready and
 tested in CI; the Linux tray app comes later.
 
 | Phase | Scope | |

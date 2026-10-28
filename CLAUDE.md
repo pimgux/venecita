@@ -46,7 +46,7 @@ as a CI artifact. Commits end with the `Co-Authored-By` line the session asks fo
 
 Done: phases 0–9 (8 = local API + `venecita` CLI, see `docs/API.md`; 9 = Windows backend), redesigned settings (Apple style), tray menu with
 icons and shortcuts, auto-arrange, dim layer, focus mode, copying rules between layouts,
-security fixes. Latest release: `v0.1.3` (`v0.1.1` was tagged but never published: its macOS
+security fixes. Latest release: `v0.1.4` (`v0.1.1` was tagged but never published: its macOS
 job was cancelled; the workflow now publishes when Windows succeeds even if macOS fails).
 
 New in 0.1.3 (user feedback, 2026-10-28): connected displays the layout doesn't use are
@@ -56,7 +56,13 @@ stack and tab bar, no tab bars in focus mode; first run is paused until a layout
 the local API is off by default and a start failure shows in the tray; issue templates.
 Still to do from that feedback, in order: zone editor edges/overlaps (#11), per-display grid
 default (#3), Stage Manager warning (#10), onboarding wizard, monitor arrangement in the
-editor (#8), uninstall docs (#6), update check (#5). `main` stays unprotected for now.
+editor (#8), uninstall docs (#6). `main` stays unprotected for now.
+
+New in 0.1.4: the Windows installer is an Inno Setup `setup.exe` (wizard, starts the app,
+removes the old MSI), and Settings › General has an Updates card (current/latest version;
+"Update" downloads the package from the latest release, checks its `.sha256` and runs the
+setup with `/SILENT` on Windows or opens the DMG on macOS; `crates/venecita-app/src/update.rs`).
+The silent Windows update was untested when 0.1.4 shipped.
 
 Fixed on Windows (2026-10-22), confirmed on a real desk (laptop + 2 Dell):
 
