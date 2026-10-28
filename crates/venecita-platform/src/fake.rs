@@ -148,6 +148,24 @@ impl FakePlatform {
         }
     }
 
+    /// Simulates the user minimizing (`true`) or restoring (`false`) a window. Like the
+    /// backends, it is reported again as created, with its new kind.
+    pub fn set_minimized(&self, id: WindowId, minimized: bool) {
+        let info = {
+            let mut s = self.lock();
+            let Some(w) = s.windows.iter_mut().find(|w| w.id == id) else {
+                return;
+            };
+            w.kind = if minimized {
+                WindowKind::Minimized
+            } else {
+                WindowKind::Normal
+            };
+            w.clone()
+        };
+        self.emit(PlatformEvent::WindowCreated(info));
+    }
+
     /// Simulates the user dragging a window.
     pub fn user_move(&self, id: WindowId, frame: Rect) {
         let found = {

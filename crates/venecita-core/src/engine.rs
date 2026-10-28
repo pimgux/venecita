@@ -449,14 +449,18 @@ impl Engine {
                 // whenever the window gets the focus. Place it the first time, or when it
                 // just became a normal window (it appeared as a splash screen or a dialog,
                 // or was minimized); otherwise leave it where the user put it.
-                let place = match self.windows.insert(id, info) {
-                    None => true,
-                    Some(old) => now_normal && old.kind != WindowKind::Normal,
-                };
-                if place {
-                    self.place_window(id)
-                } else {
-                    Vec::new()
+                let old_kind = self.windows.insert(id, info).map(|old| old.kind);
+                match old_kind {
+                    None => self.place_window(id),
+                    Some(old) if now_normal && old != WindowKind::Normal => self.place_window(id),
+                    // Minimized (or hidden, or gone fullscreen): it leaves its stack, so its
+                    // tab goes away and the rest of the stack takes the zone. It comes back
+                    // when it is a normal window again.
+                    Some(WindowKind::Normal) if !now_normal => match self.unassign(id) {
+                        Some(key) if !self.paused => self.place_stack(&key),
+                        _ => Vec::new(),
+                    },
+                    Some(_) => Vec::new(),
                 }
             }
             PlatformEvent::WindowDestroyed { id } => self.forget(&[id]),
@@ -805,6 +809,10 @@ impl Engine {
     /// The tab bars that should be visible now.
     fn desired_tab_bars(&self) -> BTreeMap<String, TabBar> {
         let mut bars = BTreeMap::new();
+        // Focus mode shows one window: no tab bars over it or over the dimmed rest.
+        if self.focus_mode.is_some() {
+            return bars;
+        }
         for (key, stack) in &self.stacks {
             if stack.len() < 2 {
                 continue;

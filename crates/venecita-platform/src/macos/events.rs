@@ -30,7 +30,8 @@ use objc2::MainThreadMarker;
 use objc2_app_kit::{
     NSApplication, NSApplicationDidChangeScreenParametersNotification, NSRunningApplication,
     NSWorkspace, NSWorkspaceApplicationKey, NSWorkspaceDidActivateApplicationNotification,
-    NSWorkspaceDidLaunchApplicationNotification, NSWorkspaceDidTerminateApplicationNotification,
+    NSWorkspaceDidHideApplicationNotification, NSWorkspaceDidLaunchApplicationNotification,
+    NSWorkspaceDidTerminateApplicationNotification, NSWorkspaceDidUnhideApplicationNotification,
     NSWorkspaceDidWakeNotification,
 };
 use objc2_application_services::{AXError, AXObserver, AXUIElement};
@@ -46,7 +47,9 @@ use objc2_foundation::{NSNotification, NSNotificationCenter, NSObjectProtocol, N
 
 use super::ax::{attr, check, notification, Element};
 use super::windows;
-use crate::{AppIdentity, Debouncer, EventSink, Pid, PlatformError, PlatformEvent, Rect, Result};
+use crate::{
+    AppIdentity, Debouncer, EventSink, Pid, PlatformError, PlatformEvent, Rect, Result, WindowKind,
+};
 
 /// How long to wait after the last display callback before reporting `DisplaysChanged`.
 const DISPLAY_DEBOUNCE: Duration = Duration::from_millis(500);
@@ -194,6 +197,8 @@ fn observe_app(hub_rc: &Rc<RefCell<Hub>>, pid: Pid, app: AppIdentity) -> Observe
         notification::FOCUSED_WINDOW_CHANGED,
         notification::WINDOW_MOVED,
         notification::WINDOW_RESIZED,
+        notification::WINDOW_MINIATURIZED,
+        notification::WINDOW_DEMINIATURIZED,
     ] {
         if let Err(e) = obs.add(&obs.app_element, name, &obs.app_ctx) {
             tracing::debug!(pid, name, error = e.0, "AX notification not available");
@@ -296,6 +301,14 @@ unsafe extern "C-unwind" fn ax_callback(
                     if let Some(info) = windows::window_info(pid, &app, &element) {
                         events.push(PlatformEvent::WindowCreated(info));
                     }
+                }
+            }
+            // Reported again with its new kind: a minimized window leaves its stack (and its
+            // tab), a restored one goes back.
+            (notification::WINDOW_MINIATURIZED | notification::WINDOW_DEMINIATURIZED, _) => {
+                let app = obs.app.clone();
+                if let Some(info) = windows::window_info(pid, &app, &element) {
+                    events.push(PlatformEvent::WindowCreated(info));
                 }
             }
             (notification::FOCUSED_WINDOW_CHANGED, _) => {
@@ -429,7 +442,7 @@ impl EventHub {
 
         type Handler = fn(&Rc<RefCell<Hub>>, &NSNotification);
         // SAFETY: reading immutable extern statics.
-        let subscriptions: [(&_, Handler); 4] = unsafe {
+        let subscriptions: [(&_, Handler); 6] = unsafe {
             [
                 (
                     NSWorkspaceDidLaunchApplicationNotification,
@@ -438,6 +451,8 @@ impl EventHub {
                 (NSWorkspaceDidTerminateApplicationNotification, on_terminate),
                 (NSWorkspaceDidActivateApplicationNotification, on_activate),
                 (NSWorkspaceDidWakeNotification, on_wake),
+                (NSWorkspaceDidHideApplicationNotification, on_hide),
+                (NSWorkspaceDidUnhideApplicationNotification, on_unhide),
             ]
         };
         for (name, handler) in subscriptions {
@@ -518,6 +533,43 @@ fn on_terminate(hub: &Rc<RefCell<Hub>>, n: &NSNotification) {
         drop(removed);
         emit(hub, vec![PlatformEvent::AppTerminated { pid }]);
     }
+}
+
+/// An app was hidden (Cmd-H): its windows are reported as minimized, so they leave their
+/// stacks and tab bars like minimized windows do.
+fn on_hide(hub: &Rc<RefCell<Hub>>, n: &NSNotification) {
+    report_app_windows(hub, n, Some(WindowKind::Minimized));
+}
+
+/// An app was shown again: its windows are reported with their real kind.
+fn on_unhide(hub: &Rc<RefCell<Hub>>, n: &NSNotification) {
+    report_app_windows(hub, n, None);
+}
+
+/// Reports every watched window of the notification's app as created again, with `kind`
+/// instead of the one AX gives if set.
+fn report_app_windows(hub: &Rc<RefCell<Hub>>, n: &NSNotification, kind: Option<WindowKind>) {
+    let Some(app) = notification_app(n) else {
+        return;
+    };
+    let pid = app.processIdentifier();
+    let events = {
+        let h = hub.borrow();
+        let Some(obs) = h.apps.get(&pid) else {
+            return;
+        };
+        obs.windows
+            .values()
+            .filter_map(|(el, _)| windows::window_info(pid, &obs.app, el))
+            .map(|mut info| {
+                if let Some(kind) = kind {
+                    info.kind = kind;
+                }
+                PlatformEvent::WindowCreated(info)
+            })
+            .collect()
+    };
+    emit(hub, events);
 }
 
 /// Switching apps doesn't change the focused window *inside* an app, so AX sends nothing;

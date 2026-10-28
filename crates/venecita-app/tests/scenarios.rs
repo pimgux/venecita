@@ -922,6 +922,59 @@ fn focus_mode_enlarges_dims_and_restores_exactly() {
 }
 
 #[test]
+fn a_minimized_window_leaves_its_stack_and_its_tab_bar() {
+    let mut desk = Desk::new(setups::home_open());
+    let a = desk.open(TERMINAL);
+    let b = desk.open(SLACK);
+    assert_eq!(desk.fake.tab_bars().len(), 1);
+
+    desk.fake.set_minimized(b, true);
+    desk.pump();
+    assert!(!in_a_stack(&desk, b));
+    assert!(
+        desk.fake.tab_bars().is_empty(),
+        "one window left: no tab bar"
+    );
+    assert_eq!(
+        desk.frame(a),
+        zone_on(&setups::laptop(), 8, 4, Zone::new(0, 0, 8, 4)),
+        "the window left takes the whole zone"
+    );
+
+    desk.fake.set_minimized(b, false);
+    desk.pump();
+    assert!(in_a_stack(&desk, b));
+    assert_eq!(desk.fake.tab_bars().len(), 1, "the tab bar is back");
+
+    // Both minimized: the stack is gone.
+    desk.fake.set_minimized(a, true);
+    desk.fake.set_minimized(b, true);
+    desk.pump();
+    assert_eq!(desk.driver.engine().stacks().count(), 0);
+    assert!(desk.fake.tab_bars().is_empty());
+}
+
+#[test]
+fn focus_mode_hides_every_tab_bar() {
+    let mut desk = Desk::new(setups::home_open());
+    let a = desk.open(TERMINAL);
+    desk.open(SLACK);
+    let code = desk.open(VSCODE);
+    assert_eq!(desk.fake.tab_bars().len(), 1);
+
+    desk.focus(code);
+    desk.driver.on_action(Action::FocusModeToggle);
+    assert!(desk.fake.tab_bars().is_empty());
+    desk.driver.on_action(Action::FocusModeToggle);
+    assert_eq!(desk.fake.tab_bars().len(), 1);
+
+    // Also for a window of the stack itself.
+    desk.focus(a);
+    desk.driver.on_action(Action::FocusModeToggle);
+    assert!(desk.fake.tab_bars().is_empty());
+}
+
+#[test]
 fn focusing_another_window_ends_focus_mode() {
     let mut desk = Desk::new(setups::home_open());
     let code = desk.open(VSCODE);
