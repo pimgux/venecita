@@ -42,12 +42,21 @@ Pushing a tag `v*` runs the "Publicar versión" workflow (`.github/workflows/rel
 with its SHA-256 (tags with `-` are pre-releases). Every push to `main` also uploads the exe
 as a CI artifact. Commits end with the `Co-Authored-By` line the session asks for.
 
-## Status (2026-10-22)
+## Status (2026-10-28)
 
 Done: phases 0–9 (8 = local API + `venecita` CLI, see `docs/API.md`; 9 = Windows backend), redesigned settings (Apple style), tray menu with
 icons and shortcuts, auto-arrange, dim layer, focus mode, copying rules between layouts,
-security fixes. Latest release: `v0.1.2` (`v0.1.1` was tagged but never published: its macOS
+security fixes. Latest release: `v0.1.3` (`v0.1.1` was tagged but never published: its macOS
 job was cancelled; the workflow now publishes when Windows succeeds even if macOS fails).
+
+New in 0.1.3 (user feedback, 2026-10-28): connected displays the layout doesn't use are
+reported (log + "Add to this layout" in the editor) and the starter config has `external_2`;
+focus mode ends when any other window gets the focus; minimized/hidden windows leave their
+stack and tab bar, no tab bars in focus mode; first run is paused until a layout has a rule;
+the local API is off by default and a start failure shows in the tray; issue templates.
+Still to do from that feedback, in order: zone editor edges/overlaps (#11), per-display grid
+default (#3), Stage Manager warning (#10), onboarding wizard, monitor arrangement in the
+editor (#8), uninstall docs (#6), update check (#5). `main` stays unprotected for now.
 
 Fixed on Windows (2026-10-22), confirmed on a real desk (laptop + 2 Dell):
 

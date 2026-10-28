@@ -162,7 +162,7 @@ un tag `v*` se arman y publican los dos. Las imágenes de este README las genera
 
 ## Estado y hoja de ruta
 
-La versión **0.1.2** funciona en macOS y Windows 10/11. El soporte de Linux (X11) está listo
+La versión **0.1.3** funciona en macOS y Windows 10/11. El soporte de Linux (X11) está listo
 y se prueba en CI; la app de bandeja para Linux viene después.
 
 | Fase | Alcance | |
