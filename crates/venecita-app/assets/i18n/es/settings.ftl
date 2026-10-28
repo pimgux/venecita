@@ -191,6 +191,7 @@ no-layout-fits = Ninguna distribución sirve para las pantallas conectadas: revi
 layout-missing-displays = Esta distribución necesita pantallas que no están conectadas, o que otra definición ya tomó: { $displays }.
 display-not-in-layout = { $display } está conectada pero esta distribución no la usa: sus ventanas solo van a la zona dinámica.
 add-to-layout = Agregar a esta distribución
+setup-pending = Venecita Dock no va a mover ninguna ventana hasta que crees tu primera zona: arrastrá sobre una pantalla, elegí sus apps y guardá.
 display-added-to-layout = Pantalla `{ $display }` agregada a esta distribución.
 rule-app-open = Esta app está abierta ahora
 new-shortcut = Nuevo atajo

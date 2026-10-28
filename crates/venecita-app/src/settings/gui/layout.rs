@@ -370,6 +370,10 @@ pub(super) fn show(
         let scale =
             (f64::from(avail) / total_w.max(1.0)).min(f64::from(max_display_height) / max_h);
 
+        // First run: Venecita waits (paused) until the first zone has its apps.
+        if !config.has_rules() {
+            ui.colored_label(ui.visuals().warn_fg_color, i18n.get("setup-pending"));
+        }
         ui.label(
             egui::RichText::new(i18n.get("drag-hint"))
                 .small()

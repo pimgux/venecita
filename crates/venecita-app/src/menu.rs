@@ -154,6 +154,8 @@ pub struct AppFlags {
     pub auto_arrange: bool,
     /// Shortcuts that could not be registered (taken by another app).
     pub hotkey_conflicts: Vec<String>,
+    /// No layout has a rule yet: placement is paused until the user sets up their zones.
+    pub setup_pending: bool,
 }
 
 /// The first shortcut bound to `action` in the `[hotkeys]` table.
@@ -191,6 +193,15 @@ pub fn build(
         m.push(Item {
             text: t(Text::PermissionMissing),
             command: MenuCommand::OpenPermissionSettings,
+            enabled: true,
+            icon: Some(IconKind::Warning),
+            shortcut: None,
+        });
+    }
+    if flags.setup_pending {
+        m.push(Item {
+            text: t(Text::SetupPending),
+            command: MenuCommand::OpenSettings,
             enabled: true,
             icon: Some(IconKind::Warning),
             shortcut: None,
@@ -486,6 +497,25 @@ mod tests {
                 ..
             }
         )));
+    }
+
+    #[test]
+    fn pending_setup_opens_the_settings() {
+        let flags = AppFlags {
+            setup_pending: true,
+            ..Default::default()
+        };
+        let m = menu(&status(), &flags, Lang::Es);
+        assert_eq!(
+            m[0],
+            MenuEntry::Item {
+                text: "⚠ Configurá tus zonas para empezar…".into(),
+                command: MenuCommand::OpenSettings,
+                enabled: true,
+                icon: Some(IconKind::Warning),
+                shortcut: None,
+            }
+        );
     }
 
     #[test]

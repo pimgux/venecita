@@ -135,6 +135,8 @@ pub fn run() {
     let lang = Lang::resolve(loaded.config.general.language, os_language.as_deref());
     let launch_at_login = loaded.config.general.launch_at_login;
     let auto_arrange = loaded.config.general.auto_arrange;
+    let created = loaded.created;
+    let setup_pending = !loaded.config.has_rules();
 
     let tray = TrayIconBuilder::new()
         .with_icon(tray_image(os::tray_icon_color()))
@@ -156,6 +158,7 @@ pub fn run() {
             launch_at_login,
             auto_arrange,
             hotkey_conflicts: Vec::new(),
+            setup_pending,
         },
         started: false,
         permission_granted: Arc::new(AtomicBool::new(false)),
@@ -197,6 +200,10 @@ pub fn run() {
             app.apply_launch_at_login();
             app.try_start(true);
             app.apply_api();
+            // First run: nothing is arranged until the user sets up their zones.
+            if created {
+                app.open_settings();
+            }
             app.refresh_menu();
         }
     });
@@ -227,6 +234,10 @@ impl App {
             return;
         }
         self.started = true;
+        if self.flags.setup_pending && !self.driver.status().paused {
+            info!("no rules yet: placement paused until the zones are set up");
+            self.driver.on_action(Action::TogglePause);
+        }
         let requests = self.driver.resync().unwrap_or_else(|e| {
             error!(error = %e, "initial resync failed");
             Vec::new()
@@ -518,8 +529,17 @@ impl App {
                 self.lang = Lang::resolve(config.general.language, self.os_language.as_deref());
                 self.flags.launch_at_login = config.general.launch_at_login;
                 self.flags.auto_arrange = config.general.auto_arrange;
+                let first_rules = self.flags.setup_pending && config.has_rules();
                 let requests = self.driver.reload_config(config);
                 self.handle_ui(requests);
+                // The first rule was saved: start arranging.
+                if first_rules {
+                    self.flags.setup_pending = false;
+                    if self.driver.status().paused {
+                        info!("zones set up: placement resumed");
+                        self.on_action(Action::TogglePause);
+                    }
+                }
                 self.apply_launch_at_login();
                 self.register_hotkeys();
                 self.apply_api();

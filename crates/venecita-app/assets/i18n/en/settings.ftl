@@ -191,6 +191,7 @@ no-layout-fits = No layout fits the connected displays: check the Displays and P
 layout-missing-displays = This layout needs displays that aren't connected, or that another definition already took: { $displays }.
 display-not-in-layout = { $display } is connected but this layout doesn't use it: its windows only go to the dynamic zone.
 add-to-layout = Add to this layout
+setup-pending = Venecita Dock won't move any window until you create your first zone: drag across a display, pick its apps and save.
 display-added-to-layout = Display `{ $display }` added to this layout.
 rule-app-open = This app is open now
 new-shortcut = New shortcut

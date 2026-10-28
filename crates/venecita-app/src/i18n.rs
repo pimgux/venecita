@@ -51,6 +51,7 @@ pub enum Text {
     Arrange,
     AutoArrange,
     Resume,
+    SetupPending,
 }
 
 /// The text for `key` in `lang`.
@@ -95,6 +96,8 @@ pub fn tr(lang: Lang, key: Text) -> &'static str {
         (Lang::Es, ConfigError) => "⚠ Error en la configuración (ver registros)",
         (Lang::En, HotkeysUnavailable) => "⚠ Shortcuts in use by another app:",
         (Lang::Es, HotkeysUnavailable) => "⚠ Atajos usados por otra app:",
+        (Lang::En, SetupPending) => "⚠ Set up your zones to start…",
+        (Lang::Es, SetupPending) => "⚠ Configurá tus zonas para empezar…",
     }
 }
 

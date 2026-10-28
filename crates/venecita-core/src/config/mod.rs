@@ -113,6 +113,15 @@ impl Config {
             .collect()
     }
 
+    /// Whether any layout has a rule. Until one does, Venecita has nothing to arrange (every
+    /// window would go to the dynamic zone), so the app waits for the user to set it up.
+    pub fn has_rules(&self) -> bool {
+        self.profiles
+            .iter()
+            .flat_map(|p| &p.layouts)
+            .any(|l| !l.rules.is_empty())
+    }
+
     /// The grid used on a display: its own `grid` if set, otherwise `general.grid`.
     pub fn grid_for(&self, display_id: &str) -> GridSize {
         self.displays
