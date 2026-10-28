@@ -760,3 +760,47 @@ fn rules_are_copied_to_another_layout_without_the_missing_display() {
 
     assert!(m.copy_rules_to((0, 0), (0, 0)).is_err(), "not onto itself");
 }
+
+#[test]
+fn a_connected_display_is_added_to_a_layout() {
+    // A config that only knows the built-in panel and one generic external monitor.
+    let text = r#"
+[[displays]]
+id = "external"
+match = { builtin = false }
+
+[[profiles]]
+name = "P"
+[[profiles.layouts]]
+name = "Lid closed"
+displays = ["external"]
+"#;
+    let mut m = model(text);
+    let mut fhd = info("DELL P2419H", false, None);
+    fhd.handle = "fhd".into();
+    let mut uhd = info("LG HDR 4K", false, None);
+    uhd.handle = "4k".into();
+    uhd.frame.x = 1920.0;
+    let connected = vec![fhd, uhd.clone()];
+
+    // The 4K matches no definition: a new one is created and added to the layout.
+    let id = m
+        .add_connected_display_to_layout(0, 0, &uhd, &connected)
+        .unwrap();
+    assert_eq!(id, "lg_hdr_4k");
+    assert_eq!(
+        m.config().profiles[0].layouts[0].displays,
+        ["external", "lg_hdr_4k"]
+    );
+    let resolved = resolve_displays(&m.config().displays, &connected);
+    assert_eq!(resolved.len(), 2, "both monitors are recognised now");
+
+    // Adding it again changes nothing.
+    let again = m
+        .add_connected_display_to_layout(0, 0, &uhd, &connected)
+        .unwrap();
+    assert_eq!(again, "lg_hdr_4k");
+    assert_eq!(m.config().displays.len(), 2);
+    assert_eq!(m.config().profiles[0].layouts[0].displays.len(), 2);
+    assert!(m.is_valid(), "{:?}", m.errors());
+}

@@ -72,6 +72,13 @@ impl<P: Platform> Driver<P> {
         let requests = self.execute(commands);
         let s = self.engine.status();
         info!(profile = ?s.profile, layout = ?s.layout, "active layout");
+        if !s.unused_displays.is_empty() {
+            warn!(
+                displays = ?s.unused_displays,
+                "connected displays the active layout doesn't use (their windows go to the \
+                 dynamic zone): add them in Settings › Layout editor"
+            );
+        }
         // Where every window went and why (which rule matched, or the dynamic zone).
         for w in self.engine.windows() {
             // No window titles: they can hold private text and logs get shared.

@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui;
 use venecita_core::config::{Layout, Placement};
-use venecita_core::display::resolve_displays;
+use venecita_core::display::{resolve_displays, unused_displays};
 use venecita_core::grid::{GridSize, Zone};
 
 use super::displays;
@@ -262,6 +262,40 @@ pub(super) fn show(
                 }
             }
             _ => {}
+        }
+        // Connected displays this layout leaves out: their windows only get the dynamic
+        // zone. Offer to add them (creating a definition when none matches).
+        if let Some(edited) = config.profiles[state.profile].layouts.get(state.layout) {
+            let connected = displays.connected();
+            let resolved = resolve_displays(&config.displays, connected);
+            for info in unused_displays(&resolved, &edited.displays, connected) {
+                let mut args = fluent::FluentArgs::new();
+                args.set("display", info.name.clone());
+                ui.horizontal_wrapped(|ui| {
+                    ui.colored_label(
+                        ui.visuals().warn_fg_color,
+                        i18n.get_args("display-not-in-layout", &args),
+                    );
+                    if theme::button(ui, Kind::Secondary, None, i18n.get("add-to-layout")).clicked()
+                    {
+                        state.notice = Some(
+                            match model.add_connected_display_to_layout(
+                                state.profile,
+                                state.layout,
+                                info,
+                                connected,
+                            ) {
+                                Ok(id) => {
+                                    let mut args = fluent::FluentArgs::new();
+                                    args.set("display", id);
+                                    i18n.get_args("display-added-to-layout", &args)
+                                }
+                                Err(e) => e,
+                            },
+                        );
+                    }
+                });
+            }
         }
     });
     if let Some(target) = copy_rules_to {

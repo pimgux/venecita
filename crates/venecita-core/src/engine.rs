@@ -32,7 +32,7 @@ use std::fmt;
 
 use crate::action::{Action, DisplayTarget};
 use crate::config::{Config, Layout, Placement, Rule};
-use crate::display::{resolve_displays, DisplayInfo, ResolvedDisplay};
+use crate::display::{resolve_displays, unused_displays, DisplayInfo, ResolvedDisplay};
 use crate::geometry::Rect;
 use crate::grid::{snap, zone_rect, GridSize, Zone};
 use crate::profile::{fitting_profiles, select_layout, LayoutRef};
@@ -202,6 +202,10 @@ pub struct Status {
     pub profiles: Vec<ProfileStatus>,
     /// Number of windows being tracked.
     pub windows: usize,
+    /// Names of the connected displays the active layout doesn't use (no definition
+    /// matches them, or the layout doesn't list them). Their windows go to the dynamic
+    /// zone like any window without a rule.
+    pub unused_displays: Vec<String>,
 }
 
 /// The placement engine. See the module docs.
@@ -1140,6 +1144,14 @@ impl Engine {
                 })
                 .collect(),
             windows: self.windows.len(),
+            unused_displays: unused_displays(
+                &self.resolved,
+                self.active_layout().map_or(&[][..], |l| &l.displays),
+                &self.displays,
+            )
+            .into_iter()
+            .map(|d| d.name.clone())
+            .collect(),
         }
     }
 }

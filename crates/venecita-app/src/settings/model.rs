@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use toml_edit::{DocumentMut, InlineTable, Item, Table};
 use venecita_core::config::{Config, ConfigError, Language, Placement};
-use venecita_core::display::{DisplayDef, DisplayInfo, DisplayMatcher};
+use venecita_core::display::{resolve_displays, DisplayDef, DisplayInfo, DisplayMatcher};
 use venecita_core::grid::{GridSize, Zone};
 
 /// An editable configuration backed by its on-disk TOML document.
@@ -497,6 +497,43 @@ impl SettingsModel {
         self.layout_table_mut(profile_idx, layout_idx)?["displays"] = string_array(displays);
         self.refresh();
         Ok(())
+    }
+
+    /// Adds a connected display to a layout: the definition that already matches it if there
+    /// is one, else a new definition recognising it (see [`matcher_for`]). Returns the
+    /// display id. A new definition goes last, so the displays the others claim don't change.
+    pub fn add_connected_display_to_layout(
+        &mut self,
+        profile_idx: usize,
+        layout_idx: usize,
+        info: &DisplayInfo,
+        connected: &[DisplayInfo],
+    ) -> Result<String, String> {
+        let mut displays = self
+            .config
+            .profiles
+            .get(profile_idx)
+            .and_then(|p| p.layouts.get(layout_idx))
+            .ok_or_else(|| format!("no layout at index {profile_idx}/{layout_idx}"))?
+            .displays
+            .clone();
+        let matched = resolve_displays(&self.config.displays, connected)
+            .into_iter()
+            .find(|r| r.handle == info.handle)
+            .map(|r| r.def_id);
+        let id = match matched {
+            Some(id) => id,
+            None => {
+                let id = suggest_display_id(info, &self.config.displays);
+                self.add_display(&id, &matcher_for(info))?;
+                id
+            }
+        };
+        if !displays.contains(&id) {
+            displays.push(id.clone());
+            self.set_layout_displays(profile_idx, layout_idx, &displays)?;
+        }
+        Ok(id)
     }
 
     /// Copies a layout (displays, dynamic zone and rules) within its profile, with a fresh

@@ -45,12 +45,28 @@ match = { builtin = true }
 id = "external"
 match = { builtin = false }
 
+# A second external monitor (the one on the right). Definitions are matched left to
+# right, so with two externals `external` is the left one and `external_2` the right one.
+[[displays]]
+id = "external_2"
+match = { builtin = false }
+
 # --- Profiles ---------------------------------------------------------------------------
 # A profile has one or more layouts. The layout whose displays are all connected and
 # that uses the most displays is chosen automatically.
 
 [[profiles]]
 name = "Default"
+
+  [[profiles.layouts]]
+  name = "2 externals + laptop"
+  displays = ["external", "external_2", "laptop"]
+  dynamic_zone = { display = "laptop", col = 0, row = 0, w = 8, h = 4 }
+
+  [[profiles.layouts]]
+  name = "2 externals"
+  displays = ["external", "external_2"]
+  dynamic_zone = { display = "external_2", col = 6, row = 0, w = 2, h = 4 }
 
   [[profiles.layouts]]
   name = "External + laptop"

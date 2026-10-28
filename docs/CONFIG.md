@@ -77,6 +77,12 @@ grid = { cols = 8, rows = 8 }    # a 43" screen deserves a finer grid
 If two definitions match the same kind of monitor, they are assigned **left to right**. The
 definition listed first gets the left-most monitor.
 
+Each definition takes **one** monitor. A connected monitor that no definition takes (say a
+second external screen when only one `{ builtin = false }` definition exists), or that the
+layout in use doesn't list, gets no rules: its windows go to the dynamic zone. The log warns
+about it (`connected displays the active layout doesn't use`), and the layout editor offers
+**Add to this layout**, which creates the definition when needed.
+
 ## `[[profiles]]` and `[[profiles.layouts]]`
 
 ```toml

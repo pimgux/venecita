@@ -324,6 +324,7 @@ mod tests {
                 },
             ],
             windows: 3,
+            unused_displays: Vec::new(),
         }
     }
 

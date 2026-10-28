@@ -268,7 +268,18 @@ mod tests {
         };
         save_pinned_rule(&path, &p).unwrap();
         let config = read(&path).unwrap();
-        assert_eq!(config.profile("Default").unwrap().layouts[2].rules.len(), 1);
+        assert_eq!(
+            config
+                .profile("Default")
+                .unwrap()
+                .layouts
+                .iter()
+                .find(|l| l.name == "Laptop only")
+                .unwrap()
+                .rules
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -303,7 +314,18 @@ mod tests {
         );
         let config = read(&path).unwrap();
         assert!(config.general.launch_at_login);
-        assert_eq!(config.profile("Default").unwrap().layouts[2].rules.len(), 1);
+        assert_eq!(
+            config
+                .profile("Default")
+                .unwrap()
+                .layouts
+                .iter()
+                .find(|l| l.name == "Laptop only")
+                .unwrap()
+                .rules
+                .len(),
+            1
+        );
     }
 
     #[test]

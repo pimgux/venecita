@@ -174,6 +174,30 @@ pub fn resolve_displays(defs: &[DisplayDef], connected: &[DisplayInfo]) -> Vec<R
     out
 }
 
+/// Connected displays that `layout_ids` leaves out: those no definition matches, and those
+/// matched by a definition the layout doesn't list. In left-to-right order.
+pub fn unused_displays<'a>(
+    resolved: &[ResolvedDisplay],
+    layout_ids: &[String],
+    connected: &'a [DisplayInfo],
+) -> Vec<&'a DisplayInfo> {
+    let mut out: Vec<&DisplayInfo> = connected
+        .iter()
+        .filter(|d| {
+            !resolved
+                .iter()
+                .any(|r| r.handle == d.handle && layout_ids.contains(&r.def_id))
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        a.frame
+            .x
+            .total_cmp(&b.frame.x)
+            .then(a.frame.y.total_cmp(&b.frame.y))
+    });
+    out
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -376,5 +400,48 @@ pub(crate) mod tests {
         let resolved = resolve_displays(&defs, &connected);
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0].def_id, "lg43");
+    }
+
+    #[test]
+    fn unused_displays_are_unmatched_or_outside_the_layout() {
+        // Lid closed, two externals, one generic "external" definition: it claims the
+        // left-most monitor and the 4K on the right is left out.
+        let connected = vec![
+            display(
+                "4K",
+                "LG HDR 4K",
+                false,
+                Rect::new(1920.0, 0.0, 3840.0, 2160.0),
+            ),
+            display(
+                "FHD",
+                "DELL P2419H",
+                false,
+                Rect::new(0.0, 0.0, 1920.0, 1080.0),
+            ),
+        ];
+        let external = DisplayMatcher {
+            builtin: Some(false),
+            ..Default::default()
+        };
+        let defs = vec![def("external", external)];
+        let resolved = resolve_displays(&defs, &connected);
+        let layout = vec!["external".to_string()];
+        let unused: Vec<_> = unused_displays(&resolved, &layout, &connected)
+            .iter()
+            .map(|d| d.handle.as_str())
+            .collect();
+        assert_eq!(unused, vec!["4K"]);
+
+        // Both matched, but the layout only lists one of them.
+        let defs = vec![def("fhd", by_name("DELL")), def("lg", by_name("LG"))];
+        let resolved = resolve_displays(&defs, &connected);
+        let unused: Vec<_> = unused_displays(&resolved, &["lg".to_string()], &connected)
+            .iter()
+            .map(|d| d.handle.as_str())
+            .collect();
+        assert_eq!(unused, vec!["FHD"]);
+        let all = vec!["fhd".to_string(), "lg".to_string()];
+        assert!(unused_displays(&resolved, &all, &connected).is_empty());
     }
 }

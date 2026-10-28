@@ -116,6 +116,63 @@ fn apps_without_rule_go_to_the_dynamic_zone() {
     );
 }
 
+/// Lid closed with a 1080p and a 4K: the starter config uses both externals.
+fn two_externals() -> Vec<DisplayInfo> {
+    vec![
+        setups::display(
+            "fhd",
+            "DELL P2419H",
+            false,
+            Rect::new(0.0, 0.0, 1920.0, 1080.0),
+            1.0,
+        ),
+        setups::display(
+            "4k",
+            "LG HDR 4K",
+            false,
+            Rect::new(1920.0, 0.0, 2560.0, 1440.0),
+            1.5,
+        ),
+    ]
+}
+
+#[test]
+fn starter_config_uses_every_external_display() {
+    let config = Config::from_toml_str(venecita_core::config::DEFAULT_CONFIG_TOML).unwrap();
+    let desk = Desk::with_config(two_externals(), config);
+    let status = desk.driver.status();
+    assert_eq!(status.layout.as_deref(), Some("2 externals"));
+    assert!(
+        status.unused_displays.is_empty(),
+        "{:?}",
+        status.unused_displays
+    );
+}
+
+#[test]
+fn a_display_outside_the_layout_is_reported_and_its_windows_go_to_the_dynamic_zone() {
+    // Lid closed at home, plus a second monitor the configuration doesn't know.
+    let mut displays = setups::home_closed();
+    displays.push(setups::display(
+        "extra",
+        "DELL P2419H",
+        false,
+        Rect::new(4712.0, 0.0, 1920.0, 1080.0),
+        1.0,
+    ));
+    let mut desk = Desk::new(displays);
+    let status = desk.driver.status();
+    assert_eq!(status.layout.as_deref(), Some("Notebook cerrada"));
+    assert_eq!(status.unused_displays, vec!["DELL P2419H".to_string()]);
+
+    let slack = desk.open_at(SLACK, Rect::new(4800.0, 100.0, 640.0, 480.0));
+    assert_eq!(
+        desk.frame(slack),
+        zone_on(&setups::lg43(), 8, 8, Zone::new(4, 0, 4, 8)),
+        "the dynamic zone of the layout in use"
+    );
+}
+
 #[test]
 fn closing_the_lid_switches_layout_and_rearranges() {
     let mut desk = Desk::new(setups::home_open());
