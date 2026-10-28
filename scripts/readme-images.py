@@ -58,7 +58,7 @@ T = {
         "demo": "How Venecita Dock works",
         "d7": "Open the laptop: the two-screen layout takes over",
         "d8": "Close it: everything goes back to the monitor, by itself",
-        "d9": "⌃⌥0 · Another profile (Work): every app somewhere else",
+        "d9": "At the office, two monitors: it switches to the Work profile by itself",
         "profileLbl": "Profile",
         "home": "Home",
         "work": "Work",
@@ -96,7 +96,7 @@ T = {
         "demo": "Cómo funciona Venecita Dock",
         "d7": "Abrís la notebook: se usa la distribución con dos pantallas",
         "d8": "La cerrás: todo vuelve al monitor, solo",
-        "d9": "⌃⌥0 · Otro perfil (Trabajo): cada app en otro lugar",
+        "d9": "En la oficina, dos monitores: pasa solo al perfil Trabajo",
         "profileLbl": "Perfil",
         "home": "Casa",
         "work": "Trabajo",
@@ -468,11 +468,23 @@ def track(cls, points, base=""):
 def demo(t):
     W, H = 960, 440
     css, out = [], []
-    m, scr = monitor(70, 80, 560, 300)
-    out.append(m)
-    x, y, w, h = scr
     N = "none"
     IO, OUT = EASE_IN_OUT, EASE_OUT
+    # Two desks: Home (one monitor and the laptop) for most of the loop, and Work (two
+    # monitors side by side, laptop closed) at the end. Home's parts are all `deskH`.
+    m, scr = monitor(70, 80, 560, 300)
+    out.append(f'<g class="deskH">{m}</g>')
+    x, y, w, h = scr
+    css.append(track("deskH", [(0, 1, N, None), (29.6, 1, N, "ease"), (29.9, 0, N, None),
+                               (34.5, 0, N, OUT), (34.9, 1, N, None), (LOOP, 1, N, None)]))
+    mw, mh, gap = 392, 226, 16
+    m1, scr_l = monitor(W / 2 - mw - gap / 2, 78, mw, mh)
+    m2, scr_r = monitor(W / 2 + gap / 2, 78, mw, mh)
+    out.append(f'<g class="deskW">{m1}{m2}{grid(scr_l, opacity=0.16)}{grid(scr_r, opacity=0.16)}</g>')
+    low = "translateY(8px)"
+    css.append(track("deskW", [(0, 0, low, None), (29.9, 0, low, OUT), (30.25, 1, N, None),
+                               (34.2, 1, N, "ease"), (34.5, 0, N, None), (LOOP, 0, N, None)],
+                     "opacity:0"))
 
     # Captions, one per step; the static one only shows with reduced motion.
     steps = [("d1", 0.2, 3.8), ("d2", 4.0, 7.8), ("d3", 8.0, 12.2), ("d4", 12.5, 16.2),
@@ -489,33 +501,34 @@ def demo(t):
     lp, lscr = laptop(lx, ly, lw, lh)
     base = lp[lp.index("<path"):]
     lid = lp[:lp.index("<path")]
-    out.append(base)
-    out.append(f'<g class="lid">{lid}{grid(lscr, opacity=0.3)}</g>')
+    out.append(f'<g class="deskH">{base}<g class="lid">{lid}{grid(lscr, opacity=0.3)}</g></g>')
     lid_rect = (lx, ly, lw, lh)
     closed = fit((lx, ly + lh - 7, lw, 7), lid_rect)
     css.append(track("lid", [(0, 1, closed, None), (21.6, 1, closed, IO), (22.2, 1, N, None),
                              (26.0, 1, N, IO), (26.5, 1, closed, None), (LOOP, 1, closed, None)],
                      f"transform:{closed}"))
 
-    # Profile and layout in use, above the laptop.
-    px, py = lx - 5, 104
-    out.append(f'<rect x="{px}" y="{py}" width="{lw + 10}" height="58" rx="12" fill="#ffffff" stroke="#cbd5e1"/>')
-    out.append(text(px + 14, py + 24, t["profileLbl"], 12, 600, "#64748b", "start"))
-    for cls, label in [("pHome", t["home"]), ("pWork", t["work"])]:
-        out.append(f'<g class="{cls}">' + text(px + 66, py + 24, label, 15, 700, "#0f172a", "start") + "</g>")
-    for cls, label in [("lClosed", t["closed"]), ("lOpen", t["open"])]:
-        out.append(f'<g class="{cls}">' + text(px + 14, py + 46, label, 13, 600, "#2563eb", "start") + "</g>")
-    css.append(track("pHome", [(0, 1, N, None), (29.8, 1, N, "ease"), (30.0, 0, N, None),
-                               (34.6, 0, N, OUT), (34.9, 1, N, None), (LOOP, 1, N, None)]))
-    css.append(track("pWork", [(0, 0, N, None), (30.0, 0, N, OUT), (30.3, 1, N, None),
-                               (34.4, 1, N, "ease"), (34.6, 0, N, None), (LOOP, 0, N, None)], "opacity:0"))
+    # Profile and layout in use: above the laptop at Home, below the two monitors at Work.
+    def card(px, py, profile, layouts):
+        s = (f'<rect x="{px}" y="{py}" width="{lw + 10}" height="58" rx="12" fill="#ffffff" stroke="#cbd5e1"/>'
+             + text(px + 14, py + 24, t["profileLbl"], 12, 600, "#64748b", "start")
+             + text(px + 66, py + 24, profile, 15, 700, "#0f172a", "start"))
+        for cls, label in layouts:
+            label = text(px + 14, py + 46, label, 13, 600, "#2563eb", "start")
+            s += f'<g class="{cls}">{label}</g>' if cls else label
+        return s
+
+    out.append('<g class="deskH">' + card(lx - 5, 104, t["home"],
+                                          [("lClosed", t["closed"]), ("lOpen", t["open"])]) + "</g>")
+    out.append('<g class="cardW">' + card(W / 2 - lw / 2 - 5, 346, t["work"], [(None, t["closed"])]) + "</g>")
+    css.append(anim("cardW", shown(30.6, 34.2)) + ".cardW{opacity:0}")
     css.append(track("lClosed", [(0, 1, N, None), (21.7, 1, N, "ease"), (21.9, 0, N, None),
                                  (26.5, 0, N, OUT), (26.8, 1, N, None), (LOOP, 1, N, None)]))
     css.append(track("lOpen", [(0, 0, N, None), (21.9, 0, N, OUT), (22.2, 1, N, None),
                                (26.3, 1, N, "ease"), (26.5, 0, N, None), (LOOP, 0, N, None)], "opacity:0"))
 
     # 1. The grid.
-    out.append('<g class="grid">' + grid(scr, opacity=0.45) + "</g>")
+    out.append('<g class="deskH"><g class="grid">' + grid(scr, opacity=0.45) + "</g></g>")
     css.append(anim("grid", [(0, {"opacity": 0.25}, OUT), (0.8, {"opacity": 1}, None),
                              (8.0, {"opacity": 1}, "ease"), (8.6, {"opacity": 0.35}, None),
                              (34.4, {"opacity": 0.35}, "ease"), (LOOP, {"opacity": 0.25}, None)]))
@@ -526,9 +539,9 @@ def demo(t):
     dyn_z = cell_rect(scr, 5, 2, 3, 2)
     chrome_open = cell_rect(scr, 5, 0, 3, 4)          # Home, laptop open
     laptop_dyn = cell_rect(lscr, 0, 0, 8, 4, gap=2)    # its dynamic zone: the laptop
-    code_w = cell_rect(scr, 4, 0, 4, 4)                # Work profile
-    chrome_w = cell_rect(scr, 0, 0, 4, 2)
-    dyn_w = cell_rect(scr, 0, 2, 4, 2)
+    code_w = cell_rect(scr_l, 0, 0, 8, 4)              # Work: the left monitor,
+    chrome_w = cell_rect(scr_r, 0, 0, 5, 4)            # Chrome and the dynamic zone
+    dyn_w = cell_rect(scr_r, 5, 0, 3, 4)               # on the right one
 
     def below(zone):
         zx, zy, zw, zh = zone
@@ -553,7 +566,7 @@ def demo(t):
     def mess(dx, dy, mw, mh):
         return (x + dx, y + dy, mw, mh)
 
-    def copies(cls, app, title, appear, states, rest, focus_hide=False):
+    def copies(cls, app, title, appear, states, rest, focus_hide=False, hidden_end=False):
         """`states`: (start, rect) after opening at `states[0]`; `rest`: the copy shown
         with reduced motion (Home, laptop closed)."""
         for k, (start, rect) in enumerate(states):
@@ -570,34 +583,38 @@ def demo(t):
                 pts += [(17.0, 1, N, None), (17.05, 0, N, None), (20.85, 0, N, None),
                         (20.9, 1, N, None)]
             if end is None:
-                pts += [(34.2, 1, N, "ease"), (34.6, 0, N, None), (LOOP, 0, N, None)]
+                # A window under another one leaves while still covered, so it doesn't
+                # show through the one on top as that fades out.
+                gone = (34.0, 34.05) if hidden_end else (34.2, 34.6)
+                pts += [(gone[0], 1, N, "ease"), (gone[1], 0, N, None), (LOOP, 0, N, None)]
             else:
                 pts += [(end - 0.01, 1, N, None), (end, 0, N, None), (LOOP, 0, N, None)]
             css.append(track(name, pts, "" if k == rest else "opacity:0"))
 
     bar = below(chrome_z)
     copies("wcode", "Code", None, 8.4,
-           [(8.4, mess(150, 70, 230, 150)), (9.0, code_z), (29.9, code_w)], 1, True)
+           [(8.4, mess(150, 70, 230, 150)), (9.0, code_z), (30.2, code_w)], 1, True)
     copies("wchrome", "Chrome", "Chrome — Docs", 9.0,
            [(9.0, mess(260, 120, 200, 130)), (9.6, chrome_z), (13.6, bar),
-            (22.4, below(chrome_open)), (26.0, bar), (29.9, below(chrome_w))], 2)
+            (22.4, below(chrome_open)), (26.0, bar), (30.2, below(chrome_w))], 2,
+           hidden_end=True)
     copies("wslack", "Slack", None, 9.6,
            [(9.6, mess(60, 150, 180, 110)), (10.2, dyn_z), (22.4, laptop_dyn), (25.8, dyn_z),
-            (29.9, dyn_w)], 1)
+            (30.2, dyn_w)], 1)
     copies("wchrome2", "Chrome", "Chrome — Mail", 12.8,
            [(12.8, mess(190, 40, 200, 130)), (13.4, bar), (22.4, below(chrome_open)),
-            (26.0, bar), (29.9, below(chrome_w))], 1)
+            (26.0, bar), (30.2, below(chrome_w))], 1)
 
     # 4. Tab bars: Home's Chrome zone, then Work's (hidden in focus mode).
     zx, zy, zw, _ = chrome_z
     out.append('<g class="tabs">' + tab_bar(zx, zy, zw, [("Chrome", "Docs"), ("Chrome", "Mail")], 1) + "</g>")
     css.append(track("tabs", [(0, 0, N, None), (14.0, 0, N, OUT), (14.3, 1, N, None),
                               (16.95, 1, N, "ease"), (17.2, 0, N, None), (20.9, 0, N, OUT),
-                              (21.1, 1, N, None), (29.8, 1, N, "ease"), (30.0, 0, N, None),
+                              (21.1, 1, N, None), (29.9, 1, N, "ease"), (30.1, 0, N, None),
                               (LOOP, 0, N, None)]))
     zx, zy, zw, _ = chrome_w
     out.append('<g class="tabsW">' + tab_bar(zx, zy, zw, [("Chrome", "Docs"), ("Chrome", "Mail")], 1) + "</g>")
-    css.append(track("tabsW", [(0, 0, N, None), (30.5, 0, N, OUT), (30.8, 1, N, None),
+    css.append(track("tabsW", [(0, 0, N, None), (30.85, 0, N, OUT), (31.15, 1, N, None),
                                (34.2, 1, N, "ease"), (34.6, 0, N, None), (LOOP, 0, N, None)],
                      "opacity:0"))
 
@@ -614,12 +631,10 @@ def demo(t):
                              (17.7, 1, N, None), (20.2, 1, N, IO), (20.85, 1, small, None),
                              (20.9, 0, small, None), (LOOP, 0, small, None)], "opacity:0"))
 
-    # Shortcuts, next to the monitor.
-    for cls, label, a, b in [("keyF", "⌃⌥F", 16.6, 19.6), ("key0", "⌃⌥0", 29.5, 32.6)]:
-        k, _ = keycap(lx + 70, 184, label)
-        out.append(f'<g class="{cls}">{k}</g>')
-        css.append(anim(cls, shown(a, b, slide=8)))
-        css.append(f".{cls}{{opacity:0}}")
+    # The shortcut, next to the monitor.
+    k, _ = keycap(lx + 70, 184, "⌃⌥F")
+    out.append(f'<g class="keyF">{k}</g>')
+    css.append(anim("keyF", shown(16.6, 19.6, slide=8)) + ".keyF{opacity:0}")
 
     # A click on Slack, where the enlarged window leaves it uncovered, ends focus mode.
     sx, sy, sw, sh = dyn_z

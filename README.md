@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/demo-en.svg" alt="Animation: the display is divided into a grid, each app gets a zone, windows open in their zone, two windows in one zone get tabs, and focus mode enlarges one window until you click another; opening and closing the laptop switches the layout, and another profile puts every app somewhere else">
+  <img src="docs/images/demo-en.svg" alt="Animation: the display is divided into a grid, each app gets a zone, windows open in their zone, two windows in one zone get tabs, and focus mode enlarges one window until you click another; opening and closing the laptop switches the layout, and at the office, with two monitors, it switches to the Work profile by itself">
 </p>
 
 ---

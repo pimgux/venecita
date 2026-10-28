@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/demo-es.svg" alt="Animación: la pantalla se divide en una grilla, cada app tiene su zona, las ventanas se abren en su zona, dos ventanas en una zona tienen pestañas y el modo foco agranda una ventana hasta que hacés clic en otra; abrir y cerrar la notebook cambia la distribución, y otro perfil pone cada app en otro lugar">
+  <img src="docs/images/demo-es.svg" alt="Animación: la pantalla se divide en una grilla, cada app tiene su zona, las ventanas se abren en su zona, dos ventanas en una zona tienen pestañas y el modo foco agranda una ventana hasta que hacés clic en otra; abrir y cerrar la notebook cambia la distribución, y en la oficina, con dos monitores, pasa solo al perfil Trabajo">
 </p>
 
 ---
