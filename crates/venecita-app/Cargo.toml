@@ -36,12 +36,17 @@ toml_edit.workspace = true
 fluent.workspace = true
 unic-langid.workspace = true
 global-hotkey = "0.9"
+url = "2"
 
 # The tray app and the settings window (macOS and Windows).
 [target.'cfg(any(target_os = "macos", windows))'.dependencies]
 egui.workspace = true
 eframe.workspace = true
 tray-icon = "0.24"
+# Checking for and downloading updates (Settings › General), with the system's TLS
+# (Security.framework / SChannel): nothing to compile and the OS's own certificates.
+ureq = { version = "2", default-features = false, features = ["native-tls"] }
+sha2 = "0.10"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 dispatch2 = "0.3"

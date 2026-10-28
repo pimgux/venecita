@@ -11,6 +11,7 @@ mod hotkeys;
 mod layout;
 mod profiles;
 mod theme;
+mod updates;
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -54,6 +55,7 @@ pub fn run(config_path: PathBuf, os_language: Option<String>) -> eframe::Result<
                 profiles: Default::default(),
                 hotkeys: Default::default(),
                 general: Default::default(),
+                updates: Default::default(),
                 icons: Default::default(),
                 toast: None,
                 confirm_close: false,
@@ -92,6 +94,8 @@ struct SettingsApp {
     profiles: profiles::State,
     hotkeys: hotkeys::State,
     general: general::State,
+    /// Checking for and installing updates (shown on the General page).
+    updates: updates::State,
     icons: theme::Icons,
     /// A short message shown in the status bar.
     toast: Option<(String, Instant)>,
@@ -112,6 +116,14 @@ impl eframe::App for SettingsApp {
         };
         let language_before = model.config().general.language;
 
+        // Look for a newer version once per opening of the window, in the background.
+        self.updates.check_once(ctx);
+        // The Windows installer is running and will restart the app: get out of its way.
+        if self.updates.should_close() {
+            self.allow_close = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+
         // Connected displays are needed by both the layout editor and the displays tab.
         self.displays.refresh_if_stale();
         displays::show_identify(ctx, &self.displays);
@@ -131,9 +143,12 @@ impl eframe::App for SettingsApp {
                     ui.label(egui::RichText::new("Venecita Dock").size(17.0).strong());
                 });
                 ui.add_space(14.0);
+                let update_available = self.updates.update_available();
                 for (tab, key, icon) in TABS {
                     let texture = self.icons.tile(ui.ctx(), icon);
-                    if nav_item(ui, &texture, &self.i18n.get(key), self.tab == tab).clicked() {
+                    let badge = tab == Tab::General && update_available;
+                    let label = self.i18n.get(key);
+                    if nav_item(ui, &texture, &label, self.tab == tab, badge).clicked() {
                         self.tab = tab;
                     }
                 }
@@ -188,6 +203,7 @@ impl eframe::App for SettingsApp {
                                 model,
                                 &self.i18n,
                                 &mut self.general,
+                                &mut self.updates,
                                 &self.config_path,
                                 icons,
                             ),
@@ -222,12 +238,14 @@ impl eframe::App for SettingsApp {
     }
 }
 
-/// One entry of the sidebar: icon and label, highlighted when selected.
+/// One entry of the sidebar: icon and label, highlighted when selected, with an optional
+/// dot on the right (an update is available).
 fn nav_item(
     ui: &mut egui::Ui,
     icon: &egui::TextureHandle,
     label: &str,
     selected: bool,
+    badge: bool,
 ) -> egui::Response {
     let size = egui::vec2(ui.available_width(), 32.0);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
@@ -259,6 +277,15 @@ fn nav_item(
         egui::FontId::proportional(14.0),
         color,
     );
+    if badge {
+        let dot = if selected {
+            egui::Color32::WHITE
+        } else {
+            egui::Color32::from_rgb(10, 132, 255)
+        };
+        ui.painter()
+            .circle_filled(egui::pos2(rect.right() - 14.0, rect.center().y), 4.0, dot);
+    }
     ui.add_space(2.0);
     response
 }

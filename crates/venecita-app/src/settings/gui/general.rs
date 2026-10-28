@@ -1,5 +1,6 @@
 //! The "General" tab: language, grid and gap, behavior (launch at login, automatic
-//! arranging), ignored apps, focus mode, dimming, the local API and the files.
+//! arranging), ignored apps, focus mode, dimming, the local API and the files, after the
+//! version and updates card (`updates`).
 
 use std::path::Path;
 
@@ -8,6 +9,7 @@ use venecita_core::config::Language;
 use venecita_core::grid::{GridSize, MAX_GRID_CELLS};
 
 use super::theme::{self, Icons, Kind};
+use super::updates;
 use crate::intl::I18n;
 use crate::settings::model::SettingsModel;
 use crate::token;
@@ -27,10 +29,14 @@ pub(super) fn show(
     model: &mut SettingsModel,
     i18n: &I18n,
     state: &mut State,
+    update: &mut updates::State,
     config_path: &Path,
     icons: &mut Icons,
 ) {
     theme::page_title(ui, i18n.get("general-title"));
+
+    // --- Version and updates -------------------------------------------------------------
+    updates::show(ui, i18n, update, model.is_dirty());
 
     // --- Language and grid ---------------------------------------------------------------
     theme::card(ui, None, |ui| {

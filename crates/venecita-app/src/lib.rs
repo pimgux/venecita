@@ -13,5 +13,6 @@ pub mod intl;
 pub mod menu;
 pub mod settings;
 pub mod system;
+pub mod update;
 
 pub use venecita_api::{paths, token};
