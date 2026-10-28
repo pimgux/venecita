@@ -47,6 +47,15 @@ T = {
         "cli": "or the venecita command",
         "rule": "rule",
         "switch": "switch tabs",
+        "d1": "1 · Divide the display into a grid",
+        "d2": "2 · Give each app a zone (the rest go to the dynamic zone)",
+        "d3": "3 · Apps open right in their zone",
+        "d4": "Two windows in one zone: tabs",
+        "d5": "⌃⌥F · Focus mode: the window grows, the rest is dimmed",
+        "d6": "Click another window: it goes back to its place",
+        "dStatic": "Every app opens right in its zone",
+        "dynamic": "dynamic",
+        "demo": "How Venecita Dock works",
     },
     "es": {
         "s1": "Dividí cada pantalla en una grilla",
@@ -70,6 +79,15 @@ T = {
         "cli": "o el comando venecita",
         "rule": "regla",
         "switch": "cambiar de pestaña",
+        "d1": "1 · Dividí la pantalla en una grilla",
+        "d2": "2 · Dale una zona a cada app (las demás van a la zona dinámica)",
+        "d3": "3 · Las apps se abren en su zona",
+        "d4": "Dos ventanas en una zona: pestañas",
+        "d5": "⌃⌥F · Modo foco: la ventana crece y el resto se oscurece",
+        "d6": "Clic en otra ventana: vuelve a su lugar",
+        "dStatic": "Cada app se abre en su zona",
+        "dynamic": "dinámica",
+        "demo": "Cómo funciona Venecita Dock",
     },
 }
 
@@ -78,7 +96,8 @@ def esc(s):
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def svg(w, h, body, title):
+def svg(w, h, body, title, style=""):
+    style = f"<style>{style}</style>\n" if style else ""
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}" role="img" aria-label="{esc(title)}">
 <title>{esc(title)}</title>
 <defs>
@@ -95,7 +114,7 @@ def svg(w, h, body, title):
     <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
   </marker>
 </defs>
-<rect x="0.5" y="0.5" width="{w - 1}" height="{h - 1}" rx="18" fill="url(#card)" stroke="#d6dde8"/>
+{style}<rect x="0.5" y="0.5" width="{w - 1}" height="{h - 1}" rx="18" fill="url(#card)" stroke="#d6dde8"/>
 <g font-family="{FONT}">
 {body}
 </g>
@@ -383,6 +402,198 @@ def api(t):
     return svg(W, H, "\n".join(out), t["token"])
 
 
+# --- Animated demo ---------------------------------------------------------------------
+# One CSS loop (no script, so GitHub shows it inside <img>). Every element is drawn in its
+# final place and the keyframes move it there; with reduced motion the animations are off
+# and the drawing is that final, static state.
+
+LOOP = 22.0  # seconds
+EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)"
+EASE_IN_OUT = "cubic-bezier(0.77, 0, 0.175, 1)"
+
+
+def fit(src, dst):
+    """CSS transform that maps an element drawn at `dst` onto rectangle `src`."""
+    sx, sy, sw, sh = src
+    dx, dy, dw, dh = dst
+    return (f"translate({sx:.1f}px,{sy:.1f}px) scale({sw / dw:.3f},{sh / dh:.3f}) "
+            f"translate({-dx:.1f}px,{-dy:.1f}px)")
+
+
+def keyframes(name, stops):
+    """`stops`: (seconds, {property: value}, easing of the segment that follows)."""
+    out = [f"@keyframes {name}{{"]
+    for t, props, ease in stops:
+        body = ";".join(f"{k}:{v}" for k, v in props.items())
+        if ease:
+            body += f";animation-timing-function:{ease}"
+        out.append(f"{t / LOOP * 100:.3f}%{{{body}}}")
+    out.append("}")
+    return "".join(out)
+
+
+def anim(cls, stops):
+    return (keyframes(cls, stops)
+            + f".{cls}{{animation:{cls} {LOOP}s infinite both;"
+            "transform-box:view-box;transform-origin:0 0}")
+
+
+def shown(a, b, fade=0.3, out=0.25, slide=6):
+    """Visible from `a` to `b`: fades (and slides) in, fades out."""
+    hidden = {"opacity": 0, "transform": f"translateY({slide}px)"}
+    still = {"opacity": 1, "transform": "translateY(0px)"}
+    return [(0, hidden, None), (a, hidden, EASE_OUT), (a + fade, still, None),
+            (b, still, "ease"), (b + out, {"opacity": 0, "transform": "translateY(0px)"}, None),
+            (LOOP, {"opacity": 0, "transform": "translateY(0px)"}, None)]
+
+
+def flies(appear, move, messy, final, gone=21.2, drawn=None):
+    """A window that opens at `messy`, then moves into its zone `final`. `drawn` is where
+    the element is drawn, if not `final` (it then lands on `final` through a transform)."""
+    drawn = drawn or final
+    at = fit(messy, drawn)
+    land = "none" if drawn == final else fit(final, drawn)
+    return [(0, {"opacity": 0, "transform": at}, None),
+            (appear, {"opacity": 0, "transform": at}, EASE_OUT),
+            (appear + 0.3, {"opacity": 1, "transform": at}, None),
+            (move, {"opacity": 1, "transform": at}, EASE_IN_OUT),
+            (move + 0.7, {"opacity": 1, "transform": land}, None),
+            (gone, {"opacity": 1, "transform": "none"}, "ease"),
+            (gone + 0.4, {"opacity": 0, "transform": "none"}, None),
+            (LOOP, {"opacity": 0, "transform": "none"}, None)]
+
+
+def demo(t):
+    W, H = 960, 440
+    css, out = [], []
+    m, scr = monitor(200, 80, 560, 300)
+    out.append(m)
+    x, y, w, h = scr
+
+    # Captions, one per step; the static one only shows with reduced motion.
+    steps = [("d1", 0.2, 3.8), ("d2", 4.0, 7.8), ("d3", 8.0, 12.2), ("d4", 12.5, 16.2),
+             ("d5", 16.5, 19.4), ("d6", 19.6, 21.4)]
+    for i, (key, a, b) in enumerate(steps):
+        out.append(f'<g class="c{i}">' + text(W / 2, 48, t[key], 17, 650, "#0f172a") + "</g>")
+        css.append(anim(f"c{i}", shown(a, b)))
+    out.append('<g class="cs">' + text(W / 2, 48, t["dStatic"], 17, 650, "#0f172a") + "</g>")
+    css.append(anim("cs", [(0, {"opacity": 0}, None), (LOOP, {"opacity": 0}, None)]))
+
+    # 1. The grid.
+    out.append('<g class="grid">' + grid(scr, opacity=0.45) + "</g>")
+    css.append(anim("grid", [(0, {"opacity": 0.25}, EASE_OUT), (0.8, {"opacity": 1}, None),
+                             (8.0, {"opacity": 1}, "ease"), (8.6, {"opacity": 0.35}, None),
+                             (21.4, {"opacity": 0.35}, "ease"), (LOOP, {"opacity": 0.25}, None)]))
+
+    # 2. The zones, one after the other.
+    code_z = cell_rect(scr, 0, 0, 5, 4)
+    chrome_z = cell_rect(scr, 5, 0, 3, 2)
+    dyn_z = cell_rect(scr, 5, 2, 3, 2)
+    zones = [(code_z, "Code", APP["Code"], "#93c5fd", ""),
+             (chrome_z, "Chrome", APP["Chrome"], "#fdba74", ""),
+             (dyn_z, t["dynamic"], "#facc15", "#facc15", ' stroke-dasharray="6 4"')]
+    for i, ((zx, zy, zw, zh), label, fill, stroke, dash) in enumerate(zones):
+        out.append(f'<g class="z{i}"><rect x="{zx:.1f}" y="{zy:.1f}" width="{zw:.1f}" height="{zh:.1f}" rx="5" '
+                   f'fill="{fill}" fill-opacity="0.4" stroke="{stroke}" stroke-width="2"{dash}/>'
+                   + text(zx + zw / 2, zy + zh / 2 + 6, label, 16, 700, "#ffffff") + "</g>")
+        a = 4.3 + i * 0.6
+        css.append(anim(f"z{i}", [(0, {"opacity": 0}, None), (a, {"opacity": 0}, EASE_OUT),
+                                  (a + 0.35, {"opacity": 1}, None), (8.0, {"opacity": 1}, "ease"),
+                                  (8.4, {"opacity": 0}, None), (LOOP, {"opacity": 0}, None)]))
+    css.append(".z0,.z1,.z2{opacity:0}")
+
+    # 3. Windows open somewhere and go to their zone (Slack has no rule: dynamic zone).
+    def messy(dx, dy, mw, mh):
+        return (x + dx, y + dy, mw, mh)
+    wins = [("wcode", "Code", None, code_z, messy(150, 70, 230, 150), 8.4, 9.0),
+            ("wchrome", "Chrome", "Chrome — Docs", chrome_z, messy(260, 120, 200, 130), 9.0, 9.6),
+            ("wslack", "Slack", None, dyn_z, messy(60, 150, 180, 110), 9.6, 10.2),
+            ("wchrome2", "Chrome", "Chrome — Mail", chrome_z, messy(190, 40, 200, 130), 12.8, 13.4)]
+    # Windows sharing a zone go below its tab bar.
+    zx, zy, zw, zh = chrome_z
+    below_bar = (zx, zy + 28, zw, zh - 28)
+    for cls, app, title, final, mess, appear, move in wins:
+        drawn = below_bar if cls.startswith("wchrome") else final
+        out.append(f'<g class="{cls}">' + window(drawn, app, title) + "</g>")
+        stops = flies(appear, move, mess, final if cls != "wchrome2" else below_bar, drawn=drawn)
+        if cls == "wchrome":
+            # Fills its zone until the second window arrives, then makes room for the tabs.
+            stops = (stops[:5] + [(13.6, {"transform": fit(chrome_z, below_bar)}, EASE_IN_OUT),
+                                  (14.1, {"transform": "none"}, None)] + stops[5:])
+        if cls == "wcode":
+            # Focus mode: the enlarged copy stands in for it.
+            stops = (stops[:5]
+                     + [(17.0, {"opacity": 1}, None), (17.05, {"opacity": 0}, None),
+                        (20.85, {"opacity": 0}, None), (20.9, {"opacity": 1}, None)]
+                     + stops[5:])
+        css.append(anim(cls, stops))
+
+    # 4. The tab bar of the Chrome zone (hidden in focus mode).
+    out.append('<g class="tabs">' + tab_bar(zx, zy, zw, [("Chrome", "Docs"), ("Chrome", "Mail")], 1) + "</g>")
+    css.append(anim("tabs", [(0, {"opacity": 0}, None), (14.0, {"opacity": 0}, EASE_OUT),
+                             (14.3, {"opacity": 1}, None), (16.95, {"opacity": 1}, "ease"),
+                             (17.2, {"opacity": 0}, None), (20.9, {"opacity": 0}, EASE_OUT),
+                             (21.1, {"opacity": 1}, None), (21.2, {"opacity": 1}, "ease"),
+                             (21.6, {"opacity": 0}, None), (LOOP, {"opacity": 0}, None)]))
+
+    # 5. Focus mode: dim layer, then Code grows to 80 % of the screen.
+    out.append(f'<rect class="dim" x="{x}" y="{y}" width="{w}" height="{h}" rx="3" fill="#000000"/>')
+    css.append(anim("dim", [(0, {"opacity": 0}, None), (17.0, {"opacity": 0}, EASE_OUT),
+                            (17.5, {"opacity": 0.5}, None), (20.2, {"opacity": 0.5}, EASE_OUT),
+                            (20.7, {"opacity": 0}, None), (LOOP, {"opacity": 0}, None)]))
+    css.append(".dim{opacity:0}")
+    big = (x + w * 0.1, y + h * 0.1, w * 0.8, h * 0.8)
+    out.append('<g class="big">' + window(big, "Code", highlight=True) + "</g>")
+    small = fit(code_z, big)
+    css.append(anim("big", [(0, {"opacity": 0, "transform": small}, None),
+                            (17.0, {"opacity": 0, "transform": small}, None),
+                            (17.05, {"opacity": 1, "transform": small}, EASE_IN_OUT),
+                            (17.7, {"opacity": 1, "transform": "none"}, None),
+                            (20.2, {"opacity": 1, "transform": "none"}, EASE_IN_OUT),
+                            (20.85, {"opacity": 1, "transform": small}, None),
+                            (20.9, {"opacity": 0, "transform": small}, None),
+                            (LOOP, {"opacity": 0, "transform": small}, None)]))
+    css.append(".big{opacity:0}")
+
+    # The shortcut, then a click on Slack that ends focus mode.
+    k, kw = keycap(784, 210, "⌃⌥F")
+    out.append(f'<g class="key">{k}</g>')
+    css.append(anim("key", shown(16.6, 19.6, slide=8)))
+    css.append(".key{opacity:0}")
+    sx, sy, sw, sh = dyn_z
+    # On the part of Slack the enlarged window leaves uncovered.
+    cx, cy = x + w * 0.945, sy + sh * 0.55
+    cursor = (f'<path d="M{cx:.1f},{cy:.1f} l0,18 l5,-4.5 l3.5,7.5 l3,-1.4 l-3.4,-7.4 l6.6,-0.6 z" '
+              'fill="#ffffff" stroke="#0f172a" stroke-width="1.4" stroke-linejoin="round"/>')
+    out.append(f'<g class="cur">{cursor}</g>')
+    away = "translate(40px,50px)"
+    css.append(anim("cur", [(0, {"opacity": 0, "transform": away}, None),
+                            (19.2, {"opacity": 0, "transform": away}, EASE_OUT),
+                            (19.8, {"opacity": 1, "transform": "translate(0px,0px)"}, None),
+                            (20.05, {"opacity": 1, "transform": "translate(0px,0px)"}, None),
+                            (20.15, {"opacity": 1, "transform": "translate(1px,1.5px)"}, None),
+                            (20.25, {"opacity": 1, "transform": "translate(0px,0px)"}, None),
+                            (21.0, {"opacity": 1, "transform": "translate(0px,0px)"}, "ease"),
+                            (21.4, {"opacity": 0, "transform": "translate(0px,0px)"}, None),
+                            (LOOP, {"opacity": 0, "transform": away}, None)]))
+    css.append(".cur{opacity:0}")
+    # The click ripple.
+    out.append(f'<circle class="ripple" cx="{cx:.1f}" cy="{cy:.1f}" r="14" fill="none" stroke="#facc15" stroke-width="2.5"/>')
+    css.append(keyframes("ripple", [(0, {"opacity": 0, "transform": "scale(0.4)"}, None),
+                                    (20.1, {"opacity": 0, "transform": "scale(0.4)"}, EASE_OUT),
+                                    (20.15, {"opacity": 1, "transform": "scale(0.4)"}, EASE_OUT),
+                                    (20.6, {"opacity": 0, "transform": "scale(1.4)"}, None),
+                                    (LOOP, {"opacity": 0, "transform": "scale(1.4)"}, None)])
+               + f".ripple{{opacity:0;animation:ripple {LOOP}s infinite both;"
+               "transform-box:fill-box;transform-origin:center}")
+
+    # Reduced motion: no animation; the drawing is the final state (windows in their zones,
+    # tabs, the static caption).
+    css.append("@media (prefers-reduced-motion: reduce){*{animation:none!important}"
+               ".cs{opacity:1}.c0,.c1,.c2,.c3,.c4,.c5{opacity:0}}")
+    return svg(W, H, "\n".join(out), t["demo"], "".join(css))
+
+
 ICON_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "docs", "images", "app-icon.png")
 ICON = "data:image/png;base64," + base64.b64encode(open(ICON_FILE, "rb").read()).decode()
 
@@ -391,7 +602,7 @@ def main(outdir):
     os.makedirs(outdir, exist_ok=True)
     for lang, t in T.items():
         for name, fn in [("how-it-works", how_it_works), ("profiles", profiles),
-                         ("tabs", tabs), ("focus", focus), ("api", api)]:
+                         ("tabs", tabs), ("focus", focus), ("api", api), ("demo", demo)]:
             with open(os.path.join(outdir, f"{name}-{lang}.svg"), "w", encoding="utf-8") as f:
                 f.write(fn(t))
 

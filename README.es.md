@@ -20,6 +20,10 @@
   <a href="docs/API.md">API y CLI</a>
 </p>
 
+<p align="center">
+  <img src="docs/images/demo-es.svg" alt="Animación: la pantalla se divide en una grilla, cada app tiene su zona, las ventanas se abren en su zona, dos ventanas en una zona tienen pestañas y el modo foco agranda una ventana hasta que hacés clic en otra">
+</p>
+
 ---
 
 ## Para qué sirve

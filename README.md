@@ -20,6 +20,10 @@
   <a href="docs/API.md">API and CLI</a>
 </p>
 
+<p align="center">
+  <img src="docs/images/demo-en.svg" alt="Animation: the display is divided into a grid, each app gets a zone, windows open in their zone, two windows in one zone get tabs, and focus mode enlarges one window until you click another">
+</p>
+
 ---
 
 ## Why
