@@ -1,8 +1,11 @@
 //! The "Layout" tab: each display of a layout drawn to scale with its grid.
 //!
-//! * Drag across empty cells to pick a zone, then choose the apps that go there.
+//! * Drag across empty cells to pick a zone, then choose the apps that go there. Zones may
+//!   overlap: ⌥/Alt + drag (or "Draw a new zone") draws one over the others.
 //! * Drag a rule by its body to move it (also onto another display), or by an edge or a
-//!   corner to resize it. The change is applied when the mouse is released.
+//!   corner to resize it. The change is applied when the mouse is released. The selected
+//!   rule is drawn on top and is grabbed first; clicking again where rules overlap selects
+//!   the next one below.
 //! * The dynamic zone can be resized by its edges; it is moved with "Mark as dynamic zone",
 //!   because it often fills a whole display and its body must stay free for new zones.
 
@@ -26,8 +29,9 @@ const FALLBACK_SIZE: (f64, f64) = (1600.0, 1000.0);
 const DISPLAYS_SHARE: f32 = 0.45;
 /// Limits of a drawn display's height, in points.
 const DISPLAY_HEIGHT: std::ops::RangeInclusive<f32> = 110.0..=420.0;
-/// How close to an edge, in points, the pointer must be to resize instead of move.
-const EDGE_GRAB: f32 = 7.0;
+/// How close to an edge, in points, the pointer must be (inside or outside the zone) to
+/// resize instead of move.
+const EDGE_GRAB: f32 = 6.0;
 
 /// Something on a display that can be dragged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,16 +92,59 @@ impl Canvas {
     }
 }
 
-/// The edges of `rect` near `pos` (empty if `pos` is inside, away from the edges).
+/// The edges of `rect` near `pos`: within `EDGE_GRAB` outside the zone, or inside it
+/// (empty if `pos` is inside, away from the edges, or too far outside).
 fn edges_near(rect: egui::Rect, pos: egui::Pos2) -> Edges {
-    // Small zones keep a grabbable body in the middle.
-    let mx = EDGE_GRAB.min(rect.width() / 4.0);
-    let my = EDGE_GRAB.min(rect.height() / 4.0);
+    if !rect.expand(EDGE_GRAB).contains(pos) {
+        return Edges::default();
+    }
+    // Inside, small zones keep a grabbable body in the middle.
+    let ix = EDGE_GRAB.min(rect.width() / 4.0);
+    let iy = EDGE_GRAB.min(rect.height() / 4.0);
+    let near = |p: f32, edge: f32, inward: f32, inner: f32| {
+        let d = (p - edge) * inward; // > 0 inside the zone
+        d <= inner && d >= -EDGE_GRAB
+    };
     Edges {
-        left: (pos.x - rect.min.x).abs() <= mx,
-        right: (pos.x - rect.max.x).abs() <= mx,
-        top: (pos.y - rect.min.y).abs() <= my,
-        bottom: (pos.y - rect.max.y).abs() <= my,
+        left: near(pos.x, rect.min.x, 1.0, ix),
+        right: near(pos.x, rect.max.x, -1.0, ix),
+        top: near(pos.y, rect.min.y, 1.0, iy),
+        bottom: near(pos.y, rect.max.y, -1.0, iy),
+    }
+}
+
+/// Which rule a press at `pos` grabs. `zones` are the rules in drawing order (the last one
+/// on top) and `selected` is drawn above all of them. Edges win over bodies, so a zone's
+/// edge stays grabbable where it lies over another zone; among equals the one on top wins.
+fn pick(
+    zones: &[(usize, egui::Rect)],
+    selected: Option<usize>,
+    pos: egui::Pos2,
+) -> Option<(usize, Edges)> {
+    let top_first: Vec<&(usize, egui::Rect)> = zones
+        .iter()
+        .filter(|(i, _)| Some(*i) == selected)
+        .chain(zones.iter().rev().filter(|(i, _)| Some(*i) != selected))
+        .collect();
+    top_first
+        .iter()
+        .map(|(i, r)| (*i, edges_near(*r, pos)))
+        .find(|(_, e)| e.any())
+        .or_else(|| {
+            top_first
+                .iter()
+                .find(|(_, r)| r.contains(pos))
+                .map(|(i, _)| (*i, Edges::default()))
+        })
+}
+
+/// The rule a click selects among the ones under it (`under`, top first): the next one
+/// after the selected rule, so clicking again goes down through overlapping zones.
+fn next_under(under: &[usize], selected: Option<usize>) -> Option<usize> {
+    let at = selected.and_then(|s| under.iter().position(|&i| i == s));
+    match at {
+        Some(p) => under.get((p + 1) % under.len()).copied(),
+        None => under.first().copied(),
     }
 }
 
@@ -133,6 +180,8 @@ pub(super) struct State {
     error: Option<String>,
     /// A rule or the dynamic zone being dragged.
     item_drag: Option<ItemDrag>,
+    /// "Draw a new zone": the next drag draws a zone even over existing ones.
+    draw_new: bool,
     /// Displays drawn in the previous frame (a drag can end on any of them).
     canvases: Vec<Canvas>,
     /// Displays drawn in this frame.
@@ -374,11 +423,29 @@ pub(super) fn show(
         if !config.has_rules() {
             ui.colored_label(ui.visuals().warn_fg_color, i18n.get("setup-pending"));
         }
-        ui.label(
-            egui::RichText::new(i18n.get("drag-hint"))
-                .small()
-                .color(theme::subtle(ui)),
-        );
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(i18n.get("drag-hint"))
+                    .small()
+                    .color(theme::subtle(ui)),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let (kind, label) = if state.draw_new {
+                    (Kind::Primary, i18n.get("draw-new-zone-active"))
+                } else {
+                    (Kind::Secondary, i18n.get("draw-new-zone"))
+                };
+                if theme::button(ui, kind, None, label)
+                    .on_hover_text(i18n.get("draw-new-zone-hint"))
+                    .clicked()
+                {
+                    state.draw_new = !state.draw_new;
+                }
+            });
+        });
+        if state.draw_new && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            state.draw_new = false;
+        }
         state.canvases = std::mem::take(&mut state.canvases_next);
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = spacing;
@@ -786,7 +853,14 @@ fn display_canvas(
         .map(|(i, r)| (i, placement_of(Target::Rule(i), &r.zone)))
         .filter(|(_, z)| z.display == id)
         .collect();
-    for (i, zone) in &rules {
+    // The selected (or dragged) rule is drawn last, on top of the ones it overlaps.
+    let selected = match dragging {
+        Some(Target::Rule(i)) => Some(i),
+        _ => state.editing_rule,
+    };
+    let mut drawn: Vec<&(usize, Placement)> = rules.iter().collect();
+    drawn.sort_by_key(|(i, _)| Some(*i) == selected);
+    for (i, zone) in drawn {
         let r = canvas.zone_rect(zone.zone());
         let color = rule_color(*i);
         let dragged = dragging == Some(Target::Rule(*i));
@@ -849,24 +923,27 @@ fn display_canvas(
         }
     }
 
-    // What is under the pointer: the top-most rule (body or edges), else the dynamic
-    // zone's edges.
+    // What is under the pointer: a rule (see `pick`), else the dynamic zone's edges.
+    let rects: Vec<(usize, egui::Rect)> = rules
+        .iter()
+        .map(|(i, z)| (*i, canvas.zone_rect(z.zone())))
+        .collect();
     let hit = |pos: egui::Pos2| -> Option<(Target, Placement, Edges)> {
-        for (i, zone) in rules.iter().rev() {
-            let r = canvas.zone_rect(zone.zone());
-            if r.expand(EDGE_GRAB / 2.0).contains(pos) {
-                return Some((Target::Rule(*i), zone.clone(), edges_near(r, pos)));
-            }
+        if let Some((i, edges)) = pick(&rects, selected, pos) {
+            let zone = rules.iter().find(|(j, _)| *j == i)?.1.clone();
+            return Some((Target::Rule(i), zone, edges));
         }
         let dz = dynamic.as_ref()?;
-        let r = canvas.zone_rect(dz.zone());
-        let edges = edges_near(r, pos);
-        (r.expand(EDGE_GRAB / 2.0).contains(pos) && edges.any())
-            .then(|| (Target::Dynamic, dz.clone(), edges))
+        let edges = edges_near(canvas.zone_rect(dz.zone()), pos);
+        edges.any().then(|| (Target::Dynamic, dz.clone(), edges))
     };
+    // ⌥/Alt or "Draw a new zone": drawing goes over the zones already there.
+    let draw_new = state.draw_new || ui.input(|i| i.modifiers.alt);
 
     // Cursor feedback.
-    if state.item_drag.is_none() && response.hovered() {
+    if draw_new && state.item_drag.is_none() && response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+    } else if state.item_drag.is_none() && response.hovered() {
         if let Some((_, _, edges)) = response.hover_pos().and_then(hit) {
             ui.ctx().set_cursor_icon(if edges.any() {
                 resize_cursor(edges)
@@ -879,7 +956,7 @@ fn display_canvas(
     let mut commit = None;
     if response.drag_started() {
         if let Some(pos) = response.interact_pointer_pos() {
-            match hit(pos) {
+            match if draw_new { None } else { hit(pos) } {
                 Some((target, zone, edges)) => {
                     match target {
                         Target::Rule(i) => {
@@ -930,6 +1007,9 @@ fn display_canvas(
         }
     }
     if response.drag_stopped() {
+        if state.drag_from.is_some() {
+            state.draw_new = false;
+        }
         state.drag_from = None;
         if let Some(drag) = state.item_drag.take() {
             if drag.preview != drag.start {
@@ -943,10 +1023,23 @@ fn display_canvas(
             let inside = |z: Zone| {
                 (z.col..z.col + z.w).contains(&col) && (z.row..z.row + z.h).contains(&row)
             };
-            // The last rule drawn is the one on top.
-            match rules.iter().rev().find(|(_, z)| inside(z.zone())) {
+            // Rules under the click, top first by index; clicking again selects the next one
+            // down, so every overlapping rule can be reached.
+            let under: Vec<usize> = rules
+                .iter()
+                .rev()
+                .filter(|(_, z)| inside(z.zone()))
+                .map(|(i, _)| *i)
+                .collect();
+            let chosen = if draw_new {
+                None
+            } else {
+                next_under(&under, state.editing_rule)
+            };
+            match chosen.and_then(|i| rules.iter().find(|(j, _)| *j == i)) {
                 Some((i, z)) => select_rule(state, *i, z.clone(), &layout.rules[*i].apps),
                 None => {
+                    state.draw_new = false;
                     start_new_rule(state);
                     state.selection = Some(Placement::new(id, Zone::new(col, row, 1, 1)));
                 }
@@ -1113,6 +1206,71 @@ mod tests {
         start_new_rule(&mut state);
         assert_eq!(state.editing_rule, None);
         assert!(state.apps.is_empty(), "the new rule starts without apps");
+    }
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> egui::Rect {
+        egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(w, h))
+    }
+
+    #[test]
+    fn edges_are_grabbable_on_both_sides() {
+        let r = rect(100.0, 100.0, 200.0, 100.0);
+        assert!(edges_near(r, egui::pos2(95.0, 150.0)).left, "just outside");
+        assert!(edges_near(r, egui::pos2(105.0, 150.0)).left, "just inside");
+        assert!(
+            !edges_near(r, egui::pos2(90.0, 150.0)).any(),
+            "too far outside"
+        );
+        assert!(!edges_near(r, egui::pos2(200.0, 150.0)).any(), "the body");
+        let corner = edges_near(r, egui::pos2(302.0, 203.0));
+        assert!(corner.right && corner.bottom);
+    }
+
+    #[test]
+    fn the_selected_rule_is_grabbed_first() {
+        // Two rules with the same zone: the one behind (0) is reachable once selected.
+        let zones = [
+            (0, rect(0.0, 0.0, 100.0, 100.0)),
+            (1, rect(0.0, 0.0, 100.0, 100.0)),
+        ];
+        let body = egui::pos2(50.0, 50.0);
+        let edge = egui::pos2(99.0, 50.0);
+        assert_eq!(
+            pick(&zones, None, body).map(|p| p.0),
+            Some(1),
+            "top one by default"
+        );
+        assert_eq!(pick(&zones, Some(0), body).map(|p| p.0), Some(0));
+        let (i, edges) = pick(&zones, Some(0), edge).unwrap();
+        assert_eq!(i, 0);
+        assert!(edges.right, "and it can be resized");
+    }
+
+    #[test]
+    fn an_edge_wins_over_the_body_of_another_zone() {
+        // A small zone on top of a big one: the big one's right edge, inside the small one.
+        let zones = [
+            (0, rect(0.0, 0.0, 100.0, 100.0)),
+            (1, rect(80.0, 20.0, 60.0, 60.0)),
+        ];
+        let (i, edges) = pick(&zones, None, egui::pos2(101.0, 50.0)).unwrap();
+        assert_eq!(i, 0);
+        assert!(edges.right);
+        assert_eq!(
+            pick(&zones, None, egui::pos2(120.0, 50.0)).map(|p| p.0),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn clicking_again_goes_down_through_overlapping_rules() {
+        let under = [2, 1, 0];
+        assert_eq!(next_under(&under, None), Some(2));
+        assert_eq!(next_under(&under, Some(2)), Some(1));
+        assert_eq!(next_under(&under, Some(1)), Some(0));
+        assert_eq!(next_under(&under, Some(0)), Some(2), "and around");
+        assert_eq!(next_under(&under, Some(7)), Some(2), "a rule elsewhere");
+        assert_eq!(next_under(&[], Some(1)), None);
     }
 
     #[test]
