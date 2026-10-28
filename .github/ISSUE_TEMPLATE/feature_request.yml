@@ -1,0 +1,25 @@
+name: Feature request / Pedido de mejora
+description: An idea to make Venecita Dock better. / Una idea para mejorar Venecita Dock.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does it solve? / ¿Qué problema resuelve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like? / ¿Qué te gustaría?
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system / Sistema operativo
+      multiple: true
+      options:
+        - macOS
+        - Windows
+        - Linux
