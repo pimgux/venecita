@@ -248,6 +248,8 @@ fn dim_section_defaults_and_range() {
 
 #[test]
 fn starter_config_has_no_rules_yet() {
-    assert!(!Config::from_toml_str(DEFAULT_CONFIG_TOML).unwrap().has_rules());
+    assert!(!Config::from_toml_str(DEFAULT_CONFIG_TOML)
+        .unwrap()
+        .has_rules());
     assert!(Config::from_toml_str(EXAMPLE).unwrap().has_rules());
 }

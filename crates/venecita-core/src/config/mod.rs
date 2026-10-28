@@ -242,7 +242,7 @@ pub const DEFAULT_API_BIND: &str = "127.0.0.1:47800";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ApiSettings {
-    /// Whether the API server runs.
+    /// Whether the API server runs. Off until the user turns it on.
     pub enabled: bool,
     /// Address and port to listen on.
     pub bind: String,
@@ -253,7 +253,7 @@ pub struct ApiSettings {
 impl Default for ApiSettings {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             bind: DEFAULT_API_BIND.into(),
             allow_lan: false,
         }

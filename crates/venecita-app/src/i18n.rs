@@ -52,6 +52,7 @@ pub enum Text {
     AutoArrange,
     Resume,
     SetupPending,
+    ApiError,
 }
 
 /// The text for `key` in `lang`.
@@ -98,6 +99,8 @@ pub fn tr(lang: Lang, key: Text) -> &'static str {
         (Lang::Es, HotkeysUnavailable) => "⚠ Atajos usados por otra app:",
         (Lang::En, SetupPending) => "⚠ Set up your zones to start…",
         (Lang::Es, SetupPending) => "⚠ Configurá tus zonas para empezar…",
+        (Lang::En, ApiError) => "⚠ Local API off:",
+        (Lang::Es, ApiError) => "⚠ API local apagada:",
     }
 }
 

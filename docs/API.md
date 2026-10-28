@@ -5,7 +5,8 @@ through a small HTTP + WebSocket API on your own computer, and with the `venecit
 
 ## Turning it on
 
-The API is on by default and only listens on this computer:
+The API is **off** until you turn it on, in Settings › General › Local API or in the file.
+It only listens on this computer:
 
 ```toml
 [api]
@@ -14,7 +15,10 @@ bind = "127.0.0.1:47800"
 allow_lan = false   # true lets other devices on your network use it: keep the token secret
 ```
 
-Requests need the access token, which Venecita creates on first start in `token.secret`
+If the port is taken by another program, the tray menu says so ("Local API off: … is in
+use") and the log has the details: pick another `bind` port.
+
+Requests need the access token, which Venecita creates the first time the API starts in `token.secret`
 next to `config.toml` (readable only by you). Show it, or replace it, with:
 
 ```sh

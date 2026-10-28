@@ -159,6 +159,7 @@ pub fn run() {
             auto_arrange,
             hotkey_conflicts: Vec::new(),
             setup_pending,
+            api_error: None,
         },
         started: false,
         permission_granted: Arc::new(AtomicBool::new(false)),
@@ -290,6 +291,7 @@ impl App {
     /// first use (`token.secret` next to the config file).
     fn apply_api(&mut self) {
         let cfg = self.driver.engine().config().api.clone();
+        self.flags.api_error = None;
         if !cfg.enabled {
             if self.api.take().is_some() {
                 info!("API stopped");
@@ -299,6 +301,7 @@ impl App {
         }
         let Ok(bind) = cfg.bind.parse::<SocketAddr>() else {
             warn!(bind = %cfg.bind, "invalid api.bind; the API is off");
+            self.flags.api_error = Some(format!("invalid address {}", cfg.bind));
             return;
         };
         let token_path = token::path_for(&self.config_path);
@@ -311,6 +314,7 @@ impl App {
                 }
                 Err(e) => {
                     error!(error = %e, "cannot create the API token; the API is off");
+                    self.flags.api_error = Some(format!("cannot create the token ({e})"));
                     return;
                 }
             },
@@ -340,6 +344,11 @@ impl App {
                 }
                 Err(e) => {
                     error!(error = %e, %bind, "cannot start the local API");
+                    self.flags.api_error = Some(if e.kind() == std::io::ErrorKind::AddrInUse {
+                        format!("{bind} is in use by another program")
+                    } else {
+                        format!("{bind}: {e}")
+                    });
                     return;
                 }
             }
@@ -612,7 +621,10 @@ impl App {
                     }
                     // Rotated from the settings window or the CLI: restart with the new one.
                     if events.iter().any(|e| e.path == token_file) {
-                        post(|app| app.apply_api());
+                        post(|app| {
+                            app.apply_api();
+                            app.refresh_menu();
+                        });
                     }
                 }
             },

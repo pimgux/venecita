@@ -156,6 +156,8 @@ pub struct AppFlags {
     pub hotkey_conflicts: Vec<String>,
     /// No layout has a rule yet: placement is paused until the user sets up their zones.
     pub setup_pending: bool,
+    /// Why the local API, turned on in the config, isn't running.
+    pub api_error: Option<String>,
 }
 
 /// The first shortcut bound to `action` in the `[hotkeys]` table.
@@ -210,6 +212,15 @@ pub fn build(
     if flags.config_error {
         m.push(Item {
             text: t(Text::ConfigError),
+            command: MenuCommand::ShowLogs,
+            enabled: true,
+            icon: Some(IconKind::Warning),
+            shortcut: None,
+        });
+    }
+    if let Some(e) = &flags.api_error {
+        m.push(Item {
+            text: format!("{} {e}", t(Text::ApiError)),
             command: MenuCommand::ShowLogs,
             enabled: true,
             icon: Some(IconKind::Warning),
@@ -516,6 +527,20 @@ mod tests {
                 shortcut: None,
             }
         );
+    }
+
+    #[test]
+    fn api_error_is_shown() {
+        let flags = AppFlags {
+            api_error: Some("127.0.0.1:47800 is in use by another program".into()),
+            ..Default::default()
+        };
+        let m = menu(&status(), &flags, Lang::En);
+        assert!(matches!(
+            &m[0],
+            MenuEntry::Item { text, command: MenuCommand::ShowLogs, .. }
+                if text == "⚠ Local API off: 127.0.0.1:47800 is in use by another program"
+        ));
     }
 
     #[test]

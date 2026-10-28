@@ -47,7 +47,7 @@ The menu bar and the Dock are never dimmed. The focused window's tab bar stays b
 
 | Key | Default | Description |
 |---|---|---|
-| `enabled` | `true` | Run the local API |
+| `enabled` | `false` | Run the local API (off until you turn it on) |
 | `bind` | `"127.0.0.1:47800"` | Address and port |
 | `allow_lan` | `false` | Must be `true` to listen on an address other than loopback |
 

@@ -28,7 +28,7 @@ enabled = false            # darken every window except the focused one
 opacity = 0.3              # how dark the other windows get
 
 [api]
-enabled = true
+enabled = false          # turn on to use the `venecita` command or other tools
 bind = "127.0.0.1:47800"   # the token is stored next to this file in token.secret
 allow_lan = false
 
