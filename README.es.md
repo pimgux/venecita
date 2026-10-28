@@ -122,9 +122,11 @@ Descargá la última versión desde [Releases](https://github.com/pimgux/venecit
   todavía no está firmada con un Developer ID, así que macOS puede decir que no la puede
   verificar: la primera vez, clic derecho → *Abrir*, y después de actualizar volvé a dar el
   permiso.
-- **Windows** (10 u 11): ejecutá `venecita-dock-…-windows-x86_64.msi`. Se instala solo para
-  tu usuario (no hace falta ser administrador), agrega Venecita Dock al menú Inicio y deja el
-  comando `venecita` en el PATH. También hay un zip con los `.exe` sueltos.
+- **Windows** (10 u 11): ejecutá `venecita-dock-…-windows-x86_64-setup.exe`. Se instala solo
+  para tu usuario (no hace falta ser administrador), agrega Venecita Dock al menú Inicio, deja
+  el comando `venecita` en el PATH y abre la app al terminar. Para actualizar, ejecutá el
+  instalador nuevo. También hay un zip con los `.exe` sueltos. (Hasta la 0.1.3 el instalador
+  era un MSI; el nuevo lo desinstala solo.)
 
 Cada descarga tiene un archivo `.sha256` para verificarla.
 
@@ -160,7 +162,7 @@ cargo run --release -p venecita-app --bin venecita-dock
 ```
 
 Paquetes: `scripts/bundle-macos.sh` arma `dist/Venecita Dock.app` y un DMG (`UNIVERSAL=1`
-para Intel + Apple Silicon). `wix/venecita.wxs` es el instalador de Windows (WiX 5). Al subir
+para Intel + Apple Silicon). `installer/venecita.iss` es el instalador de Windows (Inno Setup 6). Al subir
 un tag `v*` se arman y publican los dos. Las imágenes de este README las genera
 `scripts/readme-images.py`.
 
@@ -178,7 +180,7 @@ y se prueba en CI; la app de bandeja para Linux viene después.
 | 7 | Ventana de ajustes (egui) en español e inglés | ✅ |
 | 8 | API local y CLI | ✅ |
 | 9 | Soporte de Windows | ✅ |
-| 10 | Paquetes (DMG, MSI) y soporte de Linux | ✅ / falta la app de bandeja |
+| 10 | Paquetes (DMG, instalador de Windows) y soporte de Linux | ✅ / falta la app de bandeja |
 
 Las especificaciones están en [`docs/specs/`](docs/specs/) y la arquitectura en
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (en inglés).

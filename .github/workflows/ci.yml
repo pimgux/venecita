@@ -3,8 +3,8 @@
 # 1. Formato del código: que todo esté formateado con rustfmt.
 # 2. Pruebas en macOS, Windows y Linux: advertencias (clippy), pruebas, y el contrato de la
 #    plataforma contra un escritorio real (Windows) o virtual (X11 en Linux).
-# 3. Paquetes para probar, antes de publicar una versión: el .exe y el instalador MSI de
-#    Windows, y el DMG de macOS. Quedan para descargar en la página de la ejecución
+# 3. Paquetes para probar, antes de publicar una versión: el .exe y el instalador
+#    (venecita-dock-setup.exe) de Windows, y el DMG de macOS. Quedan para descargar en la página de la ejecución
 #    (sección "Artifacts").
 name: Verificación
 
@@ -109,12 +109,14 @@ jobs:
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - name: Compilar venecita-dock.exe y venecita.exe (release)
         run: cargo build --release -p venecita-app --bin venecita-dock -p venecita-cli --bin venecita
-      - name: Instalar WiX 5 (para el instalador)
+      - name: Instalar Inno Setup (para el instalador)
         shell: pwsh
         run: |
-          dotnet tool install --global wix --version 5.0.2
-          "$env:USERPROFILE\.dotnet\tools" >> $env:GITHUB_PATH
-      - name: Armar la carpeta y el instalador (MSI)
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          if (-not (Test-Path $iscc)) { "::error::Inno Setup no se pudo instalar"; exit 1 }
+          Split-Path $iscc >> $env:GITHUB_PATH
+      - name: Armar la carpeta y el instalador
         shell: pwsh
         run: |
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"').Matches[0].Groups[1].Value
@@ -122,8 +124,8 @@ jobs:
           Copy-Item target/release/venecita-dock.exe, target/release/venecita.exe dist/
           Copy-Item README.md, LICENSE, docs/API.md dist/
           Copy-Item examples/config.toml dist/config.example.toml
-          # If WiX fails, show its messages as errors of the run.
-          $out = wix build wix/venecita.wxs -d Version=$version -d BinDir=target/release -o dist/venecita-dock.msi 2>&1
+          # If Inno Setup fails, show its messages as errors of the run.
+          $out = iscc /Q "/DVersion=$version" "/DBinDir=$PWD\target\release" "/O$PWD\dist" "/Fvenecita-dock-setup" installer\venecita.iss 2>&1
           if ($LASTEXITCODE -ne 0) { $out | ForEach-Object { "::error::$_" }; exit 1 }
       - name: Dejar los archivos para descargar
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

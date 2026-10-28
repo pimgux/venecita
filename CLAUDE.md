@@ -76,7 +76,7 @@ comma, as the OneDrive one does (`DIUSFRAMI,S.A`). Build with
 `CARGO_TARGET_DIR=C:\Users\mfperez\cargo-target\venecita`; CI is not affected.
 
 Packaging (phase 10, first half): `scripts/bundle-macos.sh` (universal .app + DMG, ad-hoc
-signed unless `MACOS_SIGN_IDENTITY`), `wix/venecita.wxs` (per-user MSI, WiX 5), app icon from
+signed unless `MACOS_SIGN_IDENTITY`), `installer/venecita.iss` (per-user Inno Setup 6 installer: copies the files, PATH, Start menu, starts the app; replaced the WiX MSI after 0.1.3 and removes it), app icon from
 `icons::app_icon_rgba` (`cargo run -p venecita-app --example app-icons`).
 
 Also done: new shortcuts from Settings, Windows 11–style tab bars, and the Linux X11 backend

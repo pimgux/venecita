@@ -117,9 +117,11 @@ Download the latest version from [Releases](https://github.com/pimgux/venecita/r
   (System Settings → Privacy & Security → Accessibility). The app isn't signed with a
   Developer ID yet, so macOS may say it can't check it: right-click it → *Open* the first
   time, and grant the permission again after updating.
-- **Windows** (10 or 11): run `venecita-dock-…-windows-x86_64.msi`. It installs for your user
-  only (no administrator rights), adds Venecita Dock to the Start menu and puts the `venecita`
-  command on your PATH. A zip with the plain `.exe` files is there too.
+- **Windows** (10 or 11): run `venecita-dock-…-windows-x86_64-setup.exe`. It installs for your
+  user only (no administrator rights), adds Venecita Dock to the Start menu, puts the
+  `venecita` command on your PATH and starts the app when it finishes. Running a newer setup
+  updates it. A zip with the plain `.exe` files is there too. (Up to 0.1.3 the installer was an
+  MSI; the new setup removes it.)
 
 Each download has a `.sha256` file to check it.
 
@@ -153,8 +155,8 @@ cargo run --release -p venecita-app --bin venecita-dock
 ```
 
 Packages: `scripts/bundle-macos.sh` builds `dist/Venecita Dock.app` and a DMG
-(`UNIVERSAL=1` for Intel + Apple Silicon). `wix/venecita.wxs` is the Windows installer
-(WiX 5). Pushing a tag `v*` builds and publishes both. The images in this README are made by
+(`UNIVERSAL=1` for Intel + Apple Silicon). `installer/venecita.iss` is the Windows installer
+(Inno Setup 6). Pushing a tag `v*` builds and publishes both. The images in this README are made by
 `scripts/readme-images.py`.
 
 ## Status and roadmap
@@ -171,7 +173,7 @@ tested in CI; the Linux tray app comes later.
 | 7 | Settings window (egui) in English and Spanish | ✅ |
 | 8 | Local API and CLI | ✅ |
 | 9 | Windows backend | ✅ |
-| 10 | Packaging (DMG, MSI) and Linux backend | ✅ / tray app pending |
+| 10 | Packaging (DMG, Windows installer) and Linux backend | ✅ / tray app pending |
 
 Specifications live in [`docs/specs/`](docs/specs/), and the architecture overview in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
