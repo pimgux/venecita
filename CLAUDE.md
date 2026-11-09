@@ -94,5 +94,8 @@ Also done: new shortcuts from Settings, Windows 11–style tab bars, and the Lin
 CI under Xvfb + Openbox). Not yet on Linux: the tray app (tray-icon needs GTK), tab bars and
 the dim layer.
 
-Next: forcing a layout by hand (today only the profile can be chosen; the layout always
-follows the displays), a Linux tray app if wanted, Developer ID signing / notarization.
+Layouts can be forced by hand too (unreleased, after 0.1.5): `activate_layout` (by name, in
+the active profile, while it fits), `next_layout` (default `ctrl+alt+9`), `auto_layout`; the
+tray has a "Layout" submenu next to "Profile", and choosing a profile resets the layout choice.
+
+Next: a Linux tray app if wanted, Developer ID signing / notarization.

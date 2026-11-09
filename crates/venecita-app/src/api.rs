@@ -17,6 +17,7 @@ pub fn state(engine: &Engine) -> Value {
         "profile": s.profile,
         "layout": s.layout,
         "manual": s.manual,
+        "manual_layout": s.manual_layout,
         "paused": s.paused,
         "focus_mode": engine.focus_mode(),
         "auto_arrange": engine.config().general.auto_arrange,
@@ -114,11 +115,14 @@ pub fn profiles(engine: &Engine) -> Value {
     json!(list)
 }
 
-/// Checks an action from the API before it runs: profiles must exist.
+/// Checks an action from the API before it runs: profiles and layouts must exist.
 pub fn check_action(engine: &Engine, action: &Action) -> Result<(), ActionError> {
     match action {
         Action::ActivateProfile { name } if engine.config().profile(name).is_none() => {
             Err(ActionError::UnknownProfile(name.clone()))
+        }
+        Action::ActivateLayout { name } if !engine.config().has_layout(name) => {
+            Err(ActionError::Failed(format!("unknown layout `{name}`")))
         }
         _ => Ok(()),
     }

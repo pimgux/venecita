@@ -114,7 +114,7 @@ pub fn action_text(i18n: &I18n, action: &Action) -> (String, String) {
         Action::MoveToDisplay { target } => {
             args.set("target", word("target", snake(target)));
         }
-        Action::ActivateProfile { name } => {
+        Action::ActivateProfile { name } | Action::ActivateLayout { name } => {
             args.set("name", name.clone());
         }
         _ => {}
@@ -136,6 +136,8 @@ pub enum Param {
     Display,
     /// A profile name (`activate_profile`).
     Profile,
+    /// A layout name (`activate_layout`).
+    Layout,
 }
 
 /// Every action a shortcut can run (all but `focus_window`, which needs a window), with a
@@ -169,6 +171,11 @@ pub fn action_catalog() -> Vec<Action> {
         },
         Action::NextProfile,
         Action::AutoProfile,
+        Action::ActivateLayout {
+            name: String::new(),
+        },
+        Action::NextLayout,
+        Action::AutoLayout,
         Action::TogglePause,
         Action::OpenSettings,
     ]
@@ -180,6 +187,7 @@ pub fn param_of(action: &Action) -> Param {
         Action::MoveZone { .. } | Action::Grow { .. } | Action::Shrink { .. } => Param::Direction,
         Action::MoveToDisplay { .. } => Param::Display,
         Action::ActivateProfile { .. } => Param::Profile,
+        Action::ActivateLayout { .. } => Param::Layout,
         _ => Param::None,
     }
 }
@@ -318,6 +326,10 @@ mod tests {
                 name: "Casa".into(),
             },
             Action::AutoProfile,
+            Action::ActivateLayout {
+                name: "Notebook abierta".into(),
+            },
+            Action::AutoLayout,
             Action::TogglePause,
             Action::OpenSettings,
             Action::FocusWindow {

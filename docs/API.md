@@ -82,7 +82,7 @@ curl -H "Authorization: Bearer $TOKEN" -X POST $API/v1/profiles/Casa/activate
 Actions: `move_zone`, `grow`, `shrink` (`dir`: `left`, `right`, `up`, `down`),
 `move_to_display` (`target`: `next`, `prev`), `snap_to_grid`, `pin_here`, `stack_next`,
 `stack_prev`, `dynamic_next`, `dynamic_prev`, `focus_window` (`id`), `focus_mode_toggle`,
-`relayout_all`, `activate_profile` (`name`), `next_profile`, `auto_profile`, `toggle_pause`,
+`relayout_all`, `activate_profile` (`name`), `next_profile`, `auto_profile`, `activate_layout` (`name`), `next_layout`, `auto_layout`, `toggle_pause`,
 `open_settings`.
 
 ## Events (WebSocket)

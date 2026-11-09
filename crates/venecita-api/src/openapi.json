@@ -14,7 +14,7 @@
       "Action": {
         "type": "object",
         "required": ["action"],
-        "description": "An action as in the [hotkeys] table: move_zone, grow, shrink (dir: left|right|up|down), move_to_display (target: next|prev), snap_to_grid, pin_here, stack_next, stack_prev, dynamic_next, dynamic_prev, focus_window (id), focus_mode_toggle, relayout_all, activate_profile (name), next_profile, auto_profile, toggle_pause, open_settings.",
+        "description": "An action as in the [hotkeys] table: move_zone, grow, shrink (dir: left|right|up|down), move_to_display (target: next|prev), snap_to_grid, pin_here, stack_next, stack_prev, dynamic_next, dynamic_prev, focus_window (id), focus_mode_toggle, relayout_all, activate_profile (name), next_profile, auto_profile, activate_layout (name), next_layout, auto_layout, toggle_pause, open_settings.",
         "properties": {
           "action": { "type": "string", "example": "move_zone" },
           "dir": { "type": "string", "enum": ["left", "right", "up", "down"] },

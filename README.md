@@ -39,7 +39,8 @@ rectangle of cells. Each time that app opens, its window goes back to the same p
 A **profile** is a desk (home, work, travelling). Each profile has **layouts** for the
 screens you use there, such as "laptop open" and "laptop closed". Venecita Dock detects which
 displays are connected and switches layout on its own. You don't have to do anything when
-you close the lid.
+you close the lid. To use another one anyway, pick it in the tray menu (Layout ▸) or
+with a shortcut.
 
 ![The same profile with the laptop open and closed: the apps rearrange on the remaining monitor](docs/images/profiles-en.svg)
 
@@ -79,6 +80,7 @@ Every action has a shortcut, and you can change all of them from the settings wi
 | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>F</kbd> | Focus mode |
 | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>]</kbd> / <kbd>[</kbd> | Next / previous tab |
 | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>0</kbd> | Next profile |
+| <kbd>⌃</kbd><kbd>⌥</kbd><kbd>9</kbd> | Next layout |
 
 On Windows, <kbd>⌃</kbd> is Ctrl, <kbd>⌥</kbd> is Alt and <kbd>⌘</kbd> is the Windows key.
 

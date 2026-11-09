@@ -358,6 +358,83 @@ fn profiles_can_be_chosen_by_hand_and_cycled() {
 }
 
 #[test]
+fn layouts_can_be_chosen_by_hand_and_cycled() {
+    let mut desk = Desk::new(setups::home_open());
+    let slack = desk.open(SLACK);
+    let lg = setups::lg43();
+
+    // With the lid open, "Notebook cerrada" (the LG only) fits too and can be forced.
+    desk.driver.on_action(Action::ActivateLayout {
+        name: "notebook cerrada".into(),
+    });
+    let s = desk.driver.status();
+    assert_eq!(s.layout.as_deref(), Some("Notebook cerrada"));
+    assert!(s.manual_layout);
+    assert!(!s.manual, "the profile is still automatic");
+    assert_eq!(desk.frame(slack), zone_on(&lg, 8, 8, Zone::new(4, 0, 4, 8)));
+    let layouts: Vec<_> = s
+        .layouts
+        .iter()
+        .map(|l| (l.name.as_str(), l.fits, l.active))
+        .collect();
+    assert_eq!(
+        layouts,
+        vec![
+            ("Notebook abierta", true, false),
+            ("Notebook cerrada", true, true)
+        ]
+    );
+
+    // The choice survives a display change while it fits.
+    desk.fake.set_displays(setups::home_closed());
+    desk.pump();
+    desk.fake.set_displays(setups::home_open());
+    desk.pump();
+    assert_eq!(
+        desk.driver.status().layout.as_deref(),
+        Some("Notebook cerrada")
+    );
+
+    desk.driver.on_action(Action::NextLayout);
+    assert_eq!(
+        desk.driver.status().layout.as_deref(),
+        Some("Notebook abierta")
+    );
+    desk.driver.on_action(Action::NextLayout);
+    assert_eq!(
+        desk.driver.status().layout.as_deref(),
+        Some("Notebook cerrada")
+    );
+
+    // A layout of another profile, or unknown, does nothing.
+    desk.driver.on_action(Action::ActivateLayout {
+        name: "Solo notebook".into(),
+    });
+    assert_eq!(
+        desk.driver.status().layout.as_deref(),
+        Some("Notebook cerrada")
+    );
+
+    desk.driver.on_action(Action::AutoLayout);
+    let s = desk.driver.status();
+    assert_eq!(s.layout.as_deref(), Some("Notebook abierta"));
+    assert!(!s.manual_layout);
+    assert_eq!(
+        desk.frame(slack),
+        zone_on(&setups::laptop(), 8, 4, Zone::new(0, 0, 8, 4))
+    );
+
+    // Choosing a profile goes back to the layout its displays choose.
+    desk.driver.on_action(Action::NextLayout);
+    desk.driver.on_action(Action::ActivateProfile {
+        name: "Casa".into(),
+    });
+    let s = desk.driver.status();
+    assert_eq!(s.layout.as_deref(), Some("Notebook abierta"));
+    assert!(!s.manual_layout);
+}
+
+#[test]
 fn quitting_an_app_forgets_its_windows() {
     let mut desk = Desk::new(setups::home_open());
     let code = desk.open(VSCODE);

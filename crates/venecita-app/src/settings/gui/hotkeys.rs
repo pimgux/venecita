@@ -28,6 +28,7 @@ pub(super) struct State {
     new_dir: Option<venecita_core::Direction>,
     new_target: Option<venecita_core::action::DisplayTarget>,
     new_profile: String,
+    new_layout: String,
     new_key: Option<String>,
     new_typed: String,
     new_message: Option<(bool, String)>,
@@ -165,6 +166,14 @@ fn new_shortcut(ui: &mut egui::Ui, model: &mut SettingsModel, i18n: &I18n, state
         .iter()
         .map(|p| p.name.clone())
         .collect();
+    // Layout names, once each: the same name in several profiles ("Laptop open") is one
+    // shortcut that picks it in whichever profile is active.
+    let mut layouts: Vec<String> = Vec::new();
+    for l in model.config().profiles.iter().flat_map(|p| &p.layouts) {
+        if !layouts.iter().any(|n| n.eq_ignore_ascii_case(&l.name)) {
+            layouts.push(l.name.clone());
+        }
+    }
 
     theme::card(ui, Some(&i18n.get("new-shortcut")), |ui| {
         // The action.
@@ -250,6 +259,24 @@ fn new_shortcut(ui: &mut egui::Ui, model: &mut SettingsModel, i18n: &I18n, state
                 });
                 (!state.new_profile.is_empty()).then(|| Action::ActivateProfile {
                     name: state.new_profile.clone(),
+                })
+            }
+            Param::Layout => {
+                theme::divider(ui);
+                if !layouts.contains(&state.new_layout) {
+                    state.new_layout = layouts.first().cloned().unwrap_or_default();
+                }
+                theme::row(ui, &i18n.get("select-layout"), None, |ui| {
+                    egui::ComboBox::from_id_salt("new-layout")
+                        .selected_text(&state.new_layout)
+                        .show_ui(ui, |ui| {
+                            for l in &layouts {
+                                ui.selectable_value(&mut state.new_layout, l.clone(), l);
+                            }
+                        });
+                });
+                (!state.new_layout.is_empty()).then(|| Action::ActivateLayout {
+                    name: state.new_layout.clone(),
                 })
             }
         };

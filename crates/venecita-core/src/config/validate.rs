@@ -212,6 +212,11 @@ pub(super) fn validate(config: &Config) -> Vec<ConfigError> {
                 e.add(&path, format!("unknown profile `{name}`"));
             }
         }
+        if let Action::ActivateLayout { name } = &spec.0 {
+            if !config.has_layout(name) {
+                e.add(&path, format!("unknown layout `{name}`"));
+            }
+        }
     }
 
     e.0

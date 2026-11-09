@@ -154,6 +154,9 @@ the default hotkeys are used. If it is present, only the hotkeys it lists are ac
 | `relayout_all` | | Put every window back in its place |
 | `activate_profile` | `name` | Force a profile |
 | `next_profile` | | Cycle through the profiles that fit |
-| `auto_profile` | | Go back to automatic profile detection |
+| `auto_profile` | | Go back to automatic profile (and layout) detection |
+| `activate_layout` | `name` | Force a layout of the active profile while its displays are connected |
+| `next_layout` | | Cycle through the layouts of the active profile that fit |
+| `auto_layout` | | Go back to choosing the layout by the connected displays |
 | `toggle_pause` | | Pause or resume automatic placement |
 | `open_settings` | | Open the settings window |

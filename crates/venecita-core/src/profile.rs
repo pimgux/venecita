@@ -5,7 +5,8 @@
 //! preferred over "Laptop closed" (43" only) as soon as the laptop screen is on.
 //!
 //! The profile is the one the user chose by hand (if it has a fitting layout) or else the
-//! first profile in the configuration that has one.
+//! first profile in the configuration that has one. Inside it, a layout chosen by hand wins
+//! over the best one while it fits.
 
 use std::collections::HashSet;
 
@@ -34,13 +35,31 @@ pub fn best_layout(profile: &Profile, connected: &HashSet<&str>) -> Option<usize
         .layouts
         .iter()
         .enumerate()
-        .filter(|(_, l)| {
-            !l.displays.is_empty() && l.displays.iter().all(|d| connected.contains(d.as_str()))
-        })
+        .filter(|(_, l)| layout_fits(l, connected))
         // `max_by_key` returns the *last* maximum; reverse so the first one in config order wins ties.
         .rev()
         .max_by_key(|(_, l)| l.displays.len())
         .map(|(i, _)| i)
+}
+
+/// Whether every display of the layout is connected.
+pub fn layout_fits(layout: &Layout, connected: &HashSet<&str>) -> bool {
+    !layout.displays.is_empty()
+        && layout
+            .displays
+            .iter()
+            .all(|d| connected.contains(d.as_str()))
+}
+
+/// Indices of the fitting layouts of one profile, in configuration order.
+pub fn fitting_layouts(profile: &Profile, connected: &HashSet<&str>) -> Vec<usize> {
+    profile
+        .layouts
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| layout_fits(l, connected))
+        .map(|(i, _)| i)
+        .collect()
 }
 
 /// Indices of every profile that has a fitting layout, in configuration order.
@@ -58,10 +77,13 @@ pub fn fitting_profiles(profiles: &[Profile], connected: &HashSet<&str>) -> Vec<
 /// * `connected`: ids of the display definitions that are currently connected (see
 ///   [`crate::display::resolve_displays`]).
 /// * `preferred`: the profile chosen by hand, if any. Ignored if it doesn't fit.
+/// * `preferred_layout`: the layout chosen by hand, by name, if any. Used when the selected
+///   profile has a fitting layout with that name.
 pub fn select_layout(
     profiles: &[Profile],
     connected: &HashSet<&str>,
     preferred: Option<&str>,
+    preferred_layout: Option<&str>,
 ) -> Option<LayoutRef> {
     let preferred_idx = preferred.and_then(|name| {
         profiles
@@ -72,10 +94,19 @@ pub fn select_layout(
         .into_iter()
         .chain(0..profiles.len())
         .find_map(|pi| {
-            best_layout(&profiles[pi], connected).map(|li| LayoutRef {
-                profile: pi,
-                layout: li,
-            })
+            let profile = &profiles[pi];
+            let chosen = preferred_layout.and_then(|name| {
+                profile
+                    .layouts
+                    .iter()
+                    .position(|l| l.name.eq_ignore_ascii_case(name) && layout_fits(l, connected))
+            });
+            chosen
+                .or_else(|| best_layout(profile, connected))
+                .map(|li| LayoutRef {
+                    profile: pi,
+                    layout: li,
+                })
         })
 }
 
@@ -104,9 +135,9 @@ mod tests {
     #[test]
     fn home_with_laptop_open_and_closed() {
         let c = example();
-        let open = select_layout(&c.profiles, &set(&["lg43", "laptop"]), None);
+        let open = select_layout(&c.profiles, &set(&["lg43", "laptop"]), None, None);
         assert_eq!(names(&c, open), pair("Casa", "Notebook abierta"));
-        let closed = select_layout(&c.profiles, &set(&["lg43"]), None);
+        let closed = select_layout(&c.profiles, &set(&["lg43"]), None, None);
         assert_eq!(names(&c, closed), pair("Casa", "Notebook cerrada"));
     }
 
@@ -117,16 +148,17 @@ mod tests {
             &c.profiles,
             &set(&["work_left", "work_right", "laptop"]),
             None,
+            None,
         );
         assert_eq!(names(&c, open), pair("Trabajo", "Notebook abierta"));
-        let closed = select_layout(&c.profiles, &set(&["work_left", "work_right"]), None);
+        let closed = select_layout(&c.profiles, &set(&["work_left", "work_right"]), None, None);
         assert_eq!(names(&c, closed), pair("Trabajo", "Notebook cerrada"));
     }
 
     #[test]
     fn laptop_alone_uses_travel_profile() {
         let c = example();
-        let r = select_layout(&c.profiles, &set(&["laptop"]), None);
+        let r = select_layout(&c.profiles, &set(&["laptop"]), None, None);
         assert_eq!(names(&c, r), pair("Viaje", "Solo notebook"));
     }
 
@@ -135,18 +167,35 @@ mod tests {
         let c = example();
         let connected = set(&["lg43", "laptop"]);
         // "Viaje" also fits (it only needs the laptop) and is chosen by hand.
-        let r = select_layout(&c.profiles, &connected, Some("viaje"));
+        let r = select_layout(&c.profiles, &connected, Some("viaje"), None);
         assert_eq!(names(&c, r), pair("Viaje", "Solo notebook"));
         // "Trabajo" doesn't fit, so the automatic choice is used.
-        let r = select_layout(&c.profiles, &connected, Some("Trabajo"));
+        let r = select_layout(&c.profiles, &connected, Some("Trabajo"), None);
         assert_eq!(names(&c, r), pair("Casa", "Notebook abierta"));
+    }
+
+    #[test]
+    fn preferred_layout_wins_while_it_fits() {
+        let c = example();
+        let both = set(&["lg43", "laptop"]);
+        // With the laptop open, "Notebook cerrada" (43" only) also fits and can be forced.
+        let r = select_layout(&c.profiles, &both, None, Some("notebook cerrada"));
+        assert_eq!(names(&c, r), pair("Casa", "Notebook cerrada"));
+        // A layout that doesn't fit is ignored: the best one is used.
+        let r = select_layout(&c.profiles, &set(&["lg43"]), None, Some("Notebook abierta"));
+        assert_eq!(names(&c, r), pair("Casa", "Notebook cerrada"));
+        // Unknown in the profile: ignored too.
+        let r = select_layout(&c.profiles, &both, None, Some("Solo notebook"));
+        assert_eq!(names(&c, r), pair("Casa", "Notebook abierta"));
+        let fit = fitting_layouts(&c.profiles[0], &both);
+        assert_eq!(fit.len(), 2);
     }
 
     #[test]
     fn nothing_fits() {
         let c = example();
-        assert_eq!(select_layout(&c.profiles, &set(&[]), None), None);
-        assert_eq!(select_layout(&[], &set(&["laptop"]), None), None);
+        assert_eq!(select_layout(&c.profiles, &set(&[]), None, None), None);
+        assert_eq!(select_layout(&[], &set(&["laptop"]), None, None), None);
     }
 
     #[test]
@@ -175,7 +224,7 @@ mod tests {
             "#,
         )
         .unwrap();
-        let r = select_layout(&c.profiles, &set(&["a"]), None);
+        let r = select_layout(&c.profiles, &set(&["a"]), None, None);
         assert_eq!(names(&c, r), pair("P", "first"));
     }
 }

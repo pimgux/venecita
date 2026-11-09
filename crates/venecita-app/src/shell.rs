@@ -454,6 +454,15 @@ impl App {
                     None => self.refresh_menu(),
                 }
             }
+            MenuCommand::NextProfile => self.on_action(Action::NextProfile),
+            MenuCommand::Layout(name) => self.on_action(Action::ActivateLayout { name }),
+            MenuCommand::ToggleAutoLayout => {
+                match menu::toggle_auto_layout(&self.driver.status()) {
+                    Some(action) => self.on_action(action),
+                    None => self.refresh_menu(),
+                }
+            }
+            MenuCommand::NextLayout => self.on_action(Action::NextLayout),
             MenuCommand::RelayoutAll => self.on_action(Action::RelayoutAll),
             MenuCommand::TogglePause => self.on_action(Action::TogglePause),
             MenuCommand::ToggleAutoArrange => {

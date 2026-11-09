@@ -20,6 +20,14 @@ pub enum MenuCommand {
     Profile(String),
     /// Turn automatic profile detection on or off (see [`toggle_auto_profile`]).
     ToggleAutoProfile,
+    /// Move to the next profile that fits.
+    NextProfile,
+    /// Choose a layout of the active profile by hand.
+    Layout(String),
+    /// Turn the automatic layout choice on or off (see [`toggle_auto_layout`]).
+    ToggleAutoLayout,
+    /// Move to the next layout of the active profile that fits.
+    NextLayout,
     /// Re-arrange every window.
     RelayoutAll,
     /// Pause/resume.
@@ -47,6 +55,7 @@ impl MenuCommand {
     pub fn id(&self) -> String {
         match self {
             MenuCommand::Profile(name) => format!("profile:{name}"),
+            MenuCommand::Layout(name) => format!("layout:{name}"),
             other => format!("{other:?}"),
         }
     }
@@ -56,9 +65,15 @@ impl MenuCommand {
         if let Some(name) = id.strip_prefix("profile:") {
             return Some(MenuCommand::Profile(name.to_string()));
         }
+        if let Some(name) = id.strip_prefix("layout:") {
+            return Some(MenuCommand::Layout(name.to_string()));
+        }
         use MenuCommand::*;
         [
             ToggleAutoProfile,
+            NextProfile,
+            ToggleAutoLayout,
+            NextLayout,
             RelayoutAll,
             TogglePause,
             ToggleAutoArrange,
@@ -93,6 +108,20 @@ pub fn toggle_auto_profile(status: &Status) -> Option<Action> {
             .profile
             .clone()
             .map(|name| Action::ActivateProfile { name })
+    }
+}
+
+/// What the "Automatic (by displays)" check item of the layout submenu does: on → off
+/// keeps the current layout even when another one would use more displays; off → on lets
+/// the displays choose again. `None` when there is no layout to keep.
+pub fn toggle_auto_layout(status: &Status) -> Option<Action> {
+    if status.manual_layout {
+        Some(Action::AutoLayout)
+    } else {
+        status
+            .layout
+            .clone()
+            .map(|name| Action::ActivateLayout { name })
     }
 }
 
@@ -172,7 +201,8 @@ pub fn shortcut_for(hotkeys: &BTreeMap<String, ActionSpec>, action: &Action) -> 
 ///
 /// ```text
 /// (warnings, if any)
-/// Profile: Casa – Notebook abierta  ▸  ✓ Automatic · Casa · Trabajo …
+/// Profile: Casa                ▸  ✓ Automatic · Casa · Trabajo … · Next profile
+/// Layout: Notebook abierta      ▸  ✓ Automatic · Notebook abierta · … · Next layout
 /// Arrange windows                      ⌃⌥R
 /// ✓ Arrange automatically
 /// Pause / Resume                       ⌃⌥⇧P
@@ -238,17 +268,17 @@ pub fn build(
         m.push(Separator);
     }
 
-    // Profile: the active one in the title, the choice inside.
-    let title = match (&status.profile, &status.layout) {
-        (Some(p), Some(l)) => {
-            let manual = if status.manual {
-                format!(" {}", t(Text::ProfileManualSuffix))
-            } else {
-                String::new()
-            };
-            format!("{}: {p} – {l}{manual}", t(Text::ProfileActive))
+    // Profile and layout: the active one in the title, the choice inside.
+    let manual = |on: bool| {
+        if on {
+            format!(" {}", t(Text::ProfileManualSuffix))
+        } else {
+            String::new()
         }
-        _ => t(Text::NoProfile),
+    };
+    let title = match &status.profile {
+        Some(p) => format!("{}: {p}{}", t(Text::ProfileActive), manual(status.manual)),
+        None => t(Text::NoProfile),
     };
     let mut profiles = vec![
         Check {
@@ -271,11 +301,60 @@ pub fn build(
             }),
         });
     }
+    profiles.push(Separator);
+    profiles.push(Item {
+        text: t(Text::NextProfile),
+        command: MenuCommand::NextProfile,
+        enabled: status.profiles.iter().filter(|p| p.fits).count() > 1,
+        icon: None,
+        shortcut: key(Action::NextProfile),
+    });
     m.push(Submenu {
         text: title,
         icon: Some(IconKind::Profile),
         entries: profiles,
     });
+
+    if let Some(l) = &status.layout {
+        let mut layouts = vec![
+            Check {
+                text: t(Text::Automatic),
+                command: MenuCommand::ToggleAutoLayout,
+                checked: !status.manual_layout,
+                enabled: true,
+                shortcut: key(Action::AutoLayout),
+            },
+            Separator,
+        ];
+        for layout in &status.layouts {
+            layouts.push(Check {
+                text: layout.name.clone(),
+                command: MenuCommand::Layout(layout.name.clone()),
+                checked: layout.active,
+                enabled: layout.fits,
+                shortcut: key(Action::ActivateLayout {
+                    name: layout.name.clone(),
+                }),
+            });
+        }
+        layouts.push(Separator);
+        layouts.push(Item {
+            text: t(Text::NextLayout),
+            command: MenuCommand::NextLayout,
+            enabled: status.layouts.iter().filter(|l| l.fits).count() > 1,
+            icon: None,
+            shortcut: key(Action::NextLayout),
+        });
+        m.push(Submenu {
+            text: format!(
+                "{}: {l}{}",
+                t(Text::LayoutActive),
+                manual(status.manual_layout)
+            ),
+            icon: Some(IconKind::Display),
+            entries: layouts,
+        });
+    }
 
     m.push(Item {
         text: t(Text::Arrange),
@@ -325,13 +404,14 @@ pub fn build(
 mod tests {
     use super::*;
     use venecita_core::config::default_hotkeys;
-    use venecita_core::engine::ProfileStatus;
+    use venecita_core::engine::{LayoutStatus, ProfileStatus};
 
     fn status() -> Status {
         Status {
             profile: Some("Casa".into()),
             layout: Some("Notebook abierta".into()),
             manual: false,
+            manual_layout: false,
             paused: false,
             profiles: vec![
                 ProfileStatus {
@@ -342,6 +422,18 @@ mod tests {
                 ProfileStatus {
                     name: "Trabajo".into(),
                     fits: false,
+                    active: false,
+                },
+            ],
+            layouts: vec![
+                LayoutStatus {
+                    name: "Notebook abierta".into(),
+                    fits: true,
+                    active: true,
+                },
+                LayoutStatus {
+                    name: "Notebook cerrada".into(),
+                    fits: true,
                     active: false,
                 },
             ],
@@ -366,20 +458,32 @@ mod tests {
             .collect()
     }
 
+    fn submenu(entries: &[MenuEntry], kind: IconKind) -> Option<(&String, &Vec<MenuEntry>)> {
+        entries.iter().find_map(|e| match e {
+            MenuEntry::Submenu {
+                text,
+                entries,
+                icon,
+            } if *icon == Some(kind) => Some((text, entries)),
+            _ => None,
+        })
+    }
+
     fn profile_submenu(entries: &[MenuEntry]) -> (&String, &Vec<MenuEntry>) {
-        entries
-            .iter()
-            .find_map(|e| match e {
-                MenuEntry::Submenu { text, entries, .. } => Some((text, entries)),
-                _ => None,
-            })
-            .expect("a profile submenu")
+        submenu(entries, IconKind::Profile).expect("a profile submenu")
+    }
+
+    fn layout_submenu(entries: &[MenuEntry]) -> (&String, &Vec<MenuEntry>) {
+        submenu(entries, IconKind::Display).expect("a layout submenu")
     }
 
     #[test]
     fn command_ids_round_trip() {
         for c in [
             MenuCommand::Profile("Casa Grande".into()),
+            MenuCommand::Layout("Notebook abierta".into()),
+            MenuCommand::NextLayout,
+            MenuCommand::ToggleAutoLayout,
             MenuCommand::Quit,
             MenuCommand::ToggleLaunchAtLogin,
             MenuCommand::OpenSettings,
@@ -410,13 +514,20 @@ mod tests {
                 ..
             }
         ));
+        assert!(matches!(
+            &m[1],
+            MenuEntry::Submenu {
+                icon: Some(IconKind::Display),
+                ..
+            }
+        ));
     }
 
     #[test]
     fn profiles_are_chosen_in_a_submenu() {
         let m = menu(&status(), &AppFlags::default(), Lang::Es);
         let (title, entries) = profile_submenu(&m);
-        assert_eq!(title, "Perfil: Casa – Notebook abierta");
+        assert_eq!(title, "Perfil: Casa");
         assert!(matches!(
             &entries[0],
             MenuEntry::Check {
@@ -580,14 +691,59 @@ mod tests {
         s.layout = None;
         let m = menu(&s, &AppFlags::default(), Lang::En);
         assert_eq!(profile_submenu(&m).0, "No profile fits these displays");
+        assert!(submenu(&m, IconKind::Display).is_none());
 
         let mut s = status();
         s.manual = true;
         let m = menu(&s, &AppFlags::default(), Lang::En);
+        assert_eq!(profile_submenu(&m).0, "Profile: Casa (manual)");
+        assert_eq!(layout_submenu(&m).0, "Layout: Notebook abierta");
+    }
+
+    #[test]
+    fn layouts_are_chosen_in_a_submenu() {
+        let mut s = status();
+        s.manual_layout = true;
+        let m = menu(&s, &AppFlags::default(), Lang::Es);
+        let (title, entries) = layout_submenu(&m);
+        assert_eq!(title, "Distribución: Notebook abierta (manual)");
+        assert!(matches!(
+            &entries[0],
+            MenuEntry::Check {
+                command: MenuCommand::ToggleAutoLayout,
+                checked: false,
+                ..
+            }
+        ));
+        assert!(entries.iter().any(|e| matches!(
+            e,
+            MenuEntry::Check { command: MenuCommand::Layout(n), checked: false, enabled: true, .. }
+                if n == "Notebook cerrada"
+        )));
+        assert!(entries.iter().any(|e| matches!(
+            e,
+            MenuEntry::Item { command: MenuCommand::NextLayout, enabled: true, shortcut: Some(k), .. }
+                if k == "ctrl+alt+9"
+        )));
+        // Only Casa fits: there is no next profile.
+        assert!(profile_submenu(&m).1.iter().any(|e| matches!(
+            e,
+            MenuEntry::Item { command: MenuCommand::NextProfile, enabled: false, shortcut: Some(k), .. }
+                if k == "ctrl+alt+0"
+        )));
+    }
+
+    #[test]
+    fn automatic_layout_check_item_toggles() {
+        let mut s = status();
         assert_eq!(
-            profile_submenu(&m).0,
-            "Profile: Casa – Notebook abierta (manual)"
+            toggle_auto_layout(&s),
+            Some(Action::ActivateLayout {
+                name: "Notebook abierta".into()
+            })
         );
+        s.manual_layout = true;
+        assert_eq!(toggle_auto_layout(&s), Some(Action::AutoLayout));
     }
 
     #[test]

@@ -162,3 +162,4 @@ name = "Viaje"
 "ctrl+alt+2" = { action = "activate_profile", name = "Trabajo" }
 "ctrl+alt+a" = "auto_profile"
 "ctrl+alt+0" = "next_profile"
+"ctrl+alt+9" = "next_layout"

@@ -39,7 +39,8 @@ propio rectángulo de celdas. Cada vez que esa app se abre, su ventana vuelve al
 Un **perfil** es un lugar de trabajo (casa, oficina, viaje). Cada perfil tiene
 **distribuciones** para las pantallas que usás ahí, por ejemplo "notebook abierta" y
 "notebook cerrada". Venecita Dock detecta qué pantallas están conectadas y cambia de
-distribución solo: cuando cerrás la notebook no tenés que hacer nada.
+distribución solo: cuando cerrás la notebook no tenés que hacer nada. Si querés usar otra, elegila en el
+menú de la barra (Distribución ▸) o con un atajo.
 
 ![El mismo perfil con la notebook abierta y cerrada: las apps se reacomodan en el monitor que queda](docs/images/profiles-es.svg)
 
@@ -81,6 +82,7 @@ Cada acción tiene un atajo, y podés cambiarlos todos desde la ventana de ajust
 | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>F</kbd> | Modo foco |
 | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>]</kbd> / <kbd>[</kbd> | Pestaña siguiente / anterior |
 | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>0</kbd> | Perfil siguiente |
+| <kbd>⌃</kbd><kbd>⌥</kbd><kbd>9</kbd> | Distribución siguiente |
 
 En Windows, <kbd>⌃</kbd> es Ctrl, <kbd>⌥</kbd> es Alt y <kbd>⌘</kbd> es la tecla Windows.
 

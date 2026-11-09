@@ -54,7 +54,7 @@ enum Command {
         /// Display for move-to-display.
         #[arg(long, value_parser = ["next", "prev"])]
         target: Option<String>,
-        /// Profile for activate-profile.
+        /// Profile for activate-profile, layout for activate-layout.
         #[arg(long = "name")]
         profile: Option<String>,
         /// Window for focus-window.

@@ -35,7 +35,7 @@ use crate::config::{Config, Layout, Placement, Rule};
 use crate::display::{resolve_displays, unused_displays, DisplayInfo, ResolvedDisplay};
 use crate::geometry::Rect;
 use crate::grid::{snap, zone_rect, GridSize, Zone};
-use crate::profile::{fitting_profiles, select_layout, LayoutRef};
+use crate::profile::{fitting_layouts, fitting_profiles, layout_fits, select_layout, LayoutRef};
 use crate::rules::any_app_matches;
 use crate::stack::Stack;
 use crate::window::{PlatformEvent, WindowId, WindowInfo, WindowKind};
@@ -187,6 +187,17 @@ pub struct ProfileStatus {
     pub active: bool,
 }
 
+/// A layout of the active profile as shown in the tray menu.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LayoutStatus {
+    /// Layout name.
+    pub name: String,
+    /// Whether every display it lists is connected.
+    pub fits: bool,
+    /// Whether it is the layout in use.
+    pub active: bool,
+}
+
 /// Snapshot of the engine state for the UI.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Status {
@@ -198,8 +209,12 @@ pub struct Status {
     pub manual: bool,
     /// `true` while automatic placement is paused.
     pub paused: bool,
+    /// `true` when the layout was chosen by hand instead of by the displays.
+    pub manual_layout: bool,
     /// Every profile in configuration order.
     pub profiles: Vec<ProfileStatus>,
+    /// The layouts of the active profile in configuration order (empty without one).
+    pub layouts: Vec<LayoutStatus>,
     /// Number of windows being tracked.
     pub windows: usize,
     /// Names of the connected displays the active layout doesn't use (no definition
@@ -217,6 +232,8 @@ pub struct Engine {
     layout: Option<LayoutRef>,
     /// Profile chosen by hand (overrides detection while it fits).
     manual_profile: Option<String>,
+    /// Layout chosen by hand, by name (overrides the choice by displays while it fits).
+    manual_layout: Option<String>,
     windows: BTreeMap<WindowId, WindowInfo>,
     focused: Option<WindowId>,
     paused: bool,
@@ -265,6 +282,7 @@ impl Engine {
             resolved: Vec::new(),
             layout: None,
             manual_profile: None,
+            manual_layout: None,
             windows: BTreeMap::new(),
             focused: None,
             paused: false,
@@ -433,6 +451,11 @@ impl Engine {
                         self.manual_profile = None;
                     }
                 }
+                if let Some(name) = &self.manual_layout {
+                    if !self.config.has_layout(name) {
+                        self.manual_layout = None;
+                    }
+                }
                 self.refresh_layout();
                 commands.extend(self.relayout_all());
                 commands
@@ -540,6 +563,7 @@ impl Engine {
             Action::ActivateProfile { name } => match self.config.profile(&name) {
                 Some(p) => {
                     self.manual_profile = Some(p.name.clone());
+                    self.manual_layout = None;
                     self.refresh_layout();
                     self.relayout_all()
                 }
@@ -555,11 +579,50 @@ impl Engine {
                 let pos = current.and_then(|c| fitting.iter().position(|&p| p == c));
                 let next = fitting[pos.map_or(0, |p| (p + 1) % fitting.len())];
                 self.manual_profile = Some(self.config.profiles[next].name.clone());
+                self.manual_layout = None;
                 self.refresh_layout();
                 self.relayout_all()
             }
             Action::AutoProfile => {
                 self.manual_profile = None;
+                self.manual_layout = None;
+                self.refresh_layout();
+                self.relayout_all()
+            }
+            Action::ActivateLayout { name } => {
+                let Some((profile, _)) = self.layout.and_then(|r| r.get(&self.config.profiles))
+                else {
+                    return Vec::new();
+                };
+                let connected = self.connected_ids();
+                let Some(layout) = profile
+                    .layouts
+                    .iter()
+                    .find(|l| l.name.eq_ignore_ascii_case(&name) && layout_fits(l, &connected))
+                else {
+                    return Vec::new();
+                };
+                self.manual_layout = Some(layout.name.clone());
+                self.refresh_layout();
+                self.relayout_all()
+            }
+            Action::NextLayout => {
+                let Some(current) = self.layout else {
+                    return Vec::new();
+                };
+                let profile = &self.config.profiles[current.profile];
+                let fitting = fitting_layouts(profile, &self.connected_ids());
+                if fitting.is_empty() {
+                    return Vec::new();
+                }
+                let pos = fitting.iter().position(|&l| l == current.layout);
+                let next = fitting[pos.map_or(0, |p| (p + 1) % fitting.len())];
+                self.manual_layout = Some(profile.layouts[next].name.clone());
+                self.refresh_layout();
+                self.relayout_all()
+            }
+            Action::AutoLayout => {
+                self.manual_layout = None;
                 self.refresh_layout();
                 self.relayout_all()
             }
@@ -600,6 +663,7 @@ impl Engine {
             &self.config.profiles,
             &connected,
             self.manual_profile.as_deref(),
+            self.manual_layout.as_deref(),
         );
     }
 
@@ -1139,6 +1203,7 @@ impl Engine {
             profile: names.map(|(p, _)| p.name.clone()),
             layout: names.map(|(_, l)| l.name.clone()),
             manual: self.manual_profile.is_some(),
+            manual_layout: self.manual_layout.is_some(),
             paused: self.paused,
             profiles: self
                 .config
@@ -1151,6 +1216,17 @@ impl Engine {
                     active: active == Some(i),
                 })
                 .collect(),
+            layouts: names.map_or_else(Vec::new, |(p, _)| {
+                p.layouts
+                    .iter()
+                    .enumerate()
+                    .map(|(i, l)| LayoutStatus {
+                        name: l.name.clone(),
+                        fits: layout_fits(l, &connected),
+                        active: self.layout.map(|r| r.layout) == Some(i),
+                    })
+                    .collect()
+            }),
             windows: self.windows.len(),
             unused_displays: unused_displays(
                 &self.resolved,

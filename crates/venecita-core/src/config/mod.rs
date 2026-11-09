@@ -113,6 +113,14 @@ impl Config {
             .collect()
     }
 
+    /// Whether some profile has a layout with this name (case-insensitive).
+    pub fn has_layout(&self, name: &str) -> bool {
+        self.profiles
+            .iter()
+            .flat_map(|p| &p.layouts)
+            .any(|l| l.name.eq_ignore_ascii_case(name))
+    }
+
     /// Whether any layout has a rule. Until one does, Venecita has nothing to arrange (every
     /// window would go to the dynamic zone), so the app waits for the user to set it up.
     pub fn has_rules(&self) -> bool {
@@ -357,6 +365,7 @@ pub fn default_hotkeys() -> BTreeMap<String, ActionSpec> {
     add("ctrl+alt+period", Action::DynamicNext);
     add("ctrl+alt+comma", Action::DynamicPrev);
     add("ctrl+alt+0", Action::NextProfile);
+    add("ctrl+alt+9", Action::NextLayout);
     map
 }
 

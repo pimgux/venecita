@@ -725,7 +725,7 @@ fn layout_in_use(
 ) -> Option<venecita_core::profile::LayoutRef> {
     let resolved = resolve_displays(&config.displays, connected);
     let ids: std::collections::HashSet<&str> = resolved.iter().map(|r| r.def_id.as_str()).collect();
-    venecita_core::profile::select_layout(&config.profiles, &ids, None)
+    venecita_core::profile::select_layout(&config.profiles, &ids, None, None)
 }
 
 /// The display ids of a layout that no connected display resolves to: the reason the

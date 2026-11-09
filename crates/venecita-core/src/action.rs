@@ -77,8 +77,18 @@ pub enum Action {
     },
     /// Cycle to the next profile that fits the connected displays.
     NextProfile,
-    /// Return to automatic profile detection.
+    /// Return to automatic profile detection (and automatic layout choice).
     AutoProfile,
+    /// Switch to a layout of the active profile by name (overrides the choice by displays
+    /// while it fits).
+    ActivateLayout {
+        /// Layout name as written in the config.
+        name: String,
+    },
+    /// Cycle to the next layout of the active profile that fits the connected displays.
+    NextLayout,
+    /// Return to choosing the layout by the connected displays.
+    AutoLayout,
     /// Pause or resume automatic placement.
     TogglePause,
     /// Open the settings window.
