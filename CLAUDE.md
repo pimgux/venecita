@@ -46,7 +46,7 @@ as a CI artifact. Commits end with the `Co-Authored-By` line the session asks fo
 
 Done: phases 0–9 (8 = local API + `venecita` CLI, see `docs/API.md`; 9 = Windows backend), redesigned settings (Apple style), tray menu with
 icons and shortcuts, auto-arrange, dim layer, focus mode, copying rules between layouts,
-security fixes. Latest release: `v0.1.5` (`v0.1.1` was tagged but never published: its macOS
+security fixes. Latest release: `v0.1.6` (`v0.1.1` was tagged but never published: its macOS
 job was cancelled; the workflow now publishes when Windows succeeds even if macOS fails).
 
 New in 0.1.3 (user feedback, 2026-10-28): connected displays the layout doesn't use are
@@ -94,7 +94,7 @@ Also done: new shortcuts from Settings, Windows 11–style tab bars, and the Lin
 CI under Xvfb + Openbox). Not yet on Linux: the tray app (tray-icon needs GTK), tab bars and
 the dim layer.
 
-Layouts can be forced by hand too (unreleased, after 0.1.5): `activate_layout` (by name, in
+New in 0.1.6: layouts can be forced by hand: `activate_layout` (by name, in
 the active profile, while it fits), `next_layout` (default `ctrl+alt+9`), `auto_layout`; the
 tray has a "Layout" submenu next to "Profile", and choosing a profile resets the layout choice.
 
